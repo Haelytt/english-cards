@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карточки слов</title>
+<script>try{var t=localStorage.getItem("english-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Oswald:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <section id="lib">
+    <div class="top"><h1>Библиотека</h1><div class="tr"><button class="me ic" id="theme" aria-label="Сменить тему"></button><button class="me" id="me">Войти</button></div></div>
+    <p class="sub">Выберите модуль или создайте новый</p>
+    <div class="acc hidden" id="acc"></div>
+    <div class="mods" id="mods"></div>
+    <section id="oth" class="hidden"><h2>Общие модули</h2><div class="mods" id="omods"></div></section>
+    <h2>Новый модуль</h2>
+    <div class="add one">
+      <input id="mn" placeholder="Название, например «Еда»" autocomplete="off">
+      <button class="b pri" id="mAdd">Создать</button>
+    </div>
+  </section>
+
+  <section id="study" class="hidden">
+    <button class="back" id="back">← Библиотека</button>
+    <h1 id="title"></h1>
+    <p class="sub" id="sub"></p>
+    <div class="row2"><button class="b pri big" id="start">Учить слова</button><button class="b big alt" id="learn">Заучивание</button></div>
+
+    <h2>Добавить слово</h2>
+    <div class="add">
+      <input id="w" placeholder="Слово на английском" autocomplete="off" autocapitalize="off">
+      <input id="t" placeholder="Перевод" autocomplete="off">
+      <button class="b pri" id="addBtn">Добавить карточку</button>
+    </div>
+    <h2 id="lh">Все слова</h2>
+    <ul id="list"></ul>
+    <div class="shr" id="shr"></div>
+    <button class="danger" id="del">Удалить модуль</button>
+  </section>
+</main>
+<div class="fs hidden" id="fs">
+  <div class="fsb"><button class="x" id="x" aria-label="Закрыть">×</button><div class="bar"><i id="bar"></i></div><span class="count" id="left"></span></div>
+  <div class="stage" id="fstage"></div>
+  <div id="acts">
+    <div class="acts"><button class="b" id="no">Повторить</button><button class="b pri" id="ok">Знаю</button></div>
+    <p class="hint swh">Свайп вправо — знаю, влево — повторить</p>
+  </div>
+</div>
+
+<div class="fs hidden" id="ln">
+  <div class="fsb"><button class="x" id="lx" aria-label="Закрыть">×</button>
+    <div class="lbar" id="lbar"><div class="lfill" id="lfill"></div><span class="lbadge" id="lbadge">0</span></div>
+    <span class="lend" id="lend">0</span></div>
+  <div class="lbody" id="lbody"></div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>
