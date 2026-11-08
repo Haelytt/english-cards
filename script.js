@@ -1,6 +1,3 @@
-// Локальная версия: без аккаунта Claude данные хранятся в localStorage браузера
-if (typeof claude === "undefined") document.documentElement.classList.add("local");
-
 const KEY = "english-modules-v2", OLD = "english-cards-v1";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const seed = () => [
@@ -164,7 +161,7 @@ $("list").addEventListener("keydown", e => {
 $("back").onclick = () => { location.hash = "lib"; };
 $("del").onclick = () => {
   if (!sure) { sure = true; $("del").textContent = "Нажмите ещё раз, чтобы удалить модуль"; $("del").classList.add("sure"); return; }
-  if (dbh && mine.some(m => m.id === cur.id)) writeMine(mine.filter(m => m.id !== cur.id));
+  if (sb && user && cur.sharedId) sb.from("shared_modules").delete().eq("id", cur.sharedId).then(() => loadShared());
   mods = mods.filter(m => m !== cur); save(); location.hash = "lib";
 };
 document.addEventListener("keydown", e => {
@@ -181,7 +178,7 @@ function route(){
   if (!m) {
     cur = null; endStudy(); endLearn();
     $("study").classList.add("hidden"); $("lib").classList.remove("hidden");
-    renderLib(); renderOthers(); window.scrollTo(0, 0); return;
+    renderLib(); renderOthers(); if (user && synced) loadShared(); window.scrollTo(0, 0); return;
   }
   if (cur !== m) {
     cur = m; sure = false; editIdx = -1;
@@ -196,83 +193,151 @@ function route(){
   else { endStudy(); endLearn(); }
 }
 window.addEventListener("hashchange", route);
-let cloud = null, who = "", accState = "connecting", accErr = false, accReason = "", saveT = null, saving = false, dirty = false;
+const CFG = window.APP_CONFIG || {};
+let sb = null, user = null, accState = "connecting", accErr = false, accErrText = "", authBusy = false;
+let saveT = null, saving = false, dirty = false, synced = false;
+try {
+  if (window.supabase && /^https:\/\//.test(CFG.SUPABASE_URL || "") && CFG.SUPABASE_KEY && !/ВСТАВЬТЕ/.test(CFG.SUPABASE_KEY)) {
+    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
+  }
+} catch (e) { sb = null; }
+const authorName = () => (user && user.email ? user.email.split("@")[0] : "участник");
+function setMsg(t, err){ const m = $("amsg"); if (m) { m.textContent = t; m.className = "amsg" + (err ? " err" : ""); } }
+function authText(e){
+  const m = String((e && e.message) || e || "");
+  if (/invalid login/i.test(m)) return "Неверная почта или пароль.";
+  if (/already registered|already been registered/i.test(m)) return "Эта почта уже зарегистрирована, нажмите «Войти».";
+  if (/not confirmed/i.test(m)) return "Подтвердите почту по ссылке из письма.";
+  if (/rate limit|too many/i.test(m)) return "Слишком много попыток, попробуйте позже.";
+  if (/password/i.test(m)) return "Пароль слишком короткий или простой.";
+  return "Ошибка: " + m;
+}
 function renderAcc(){
   const me = $("me");
-  me.textContent = accState === "in" ? (who || "Аккаунт") : accState === "connecting" ? "Подключение…" : "Войти";
-  me.className = "me" + (accState === "in" ? " on" : "");
+  me.textContent = user ? authorName() : (sb && accState === "connecting" ? "Подключение…" : "Войти");
+  me.className = "me" + (user ? " on" : "");
   let h;
-  if (accState === "in") {
-    h = '<b>' + esc(who || "Аккаунт Claude") + '</b><p>Вы вошли. Модули и слова хранятся в вашем аккаунте и доступны на всех устройствах, где вы открываете этот сайт.</p>' +
-        (accErr ? '<p class="err">Не удалось сохранить в аккаунт. Слова остались на этом устройстве, изменения отправятся при следующем сохранении.</p>' : '');
+  if (!sb) {
+    h = '<b>Аккаунты не настроены</b><p>Заполните файл config.js: вставьте Project URL и Publishable key из Supabase.</p>';
   } else if (accState === "connecting") {
     h = '<p>Проверяем вход…</p>';
+  } else if (accState === "recovery") {
+    h = '<b>Новый пароль</b><p>Придумайте новый пароль для входа.</p>' +
+      '<input class="ei" id="apn" type="password" placeholder="Новый пароль" autocomplete="new-password">' +
+      '<div class="arow"><button class="b pri" id="anew">Сохранить пароль</button></div><p class="amsg" id="amsg"></p>';
+  } else if (user) {
+    h = '<b>' + esc(user.email || "Аккаунт") + '</b><p>Вы вошли. Модули и слова хранятся в вашем аккаунте и доступны на всех устройствах.</p>' +
+      (accErr ? '<p class="amsg err">Не удалось синхронизировать: ' + esc(accErrText) + '</p>' : '') +
+      '<button class="b" id="logout">Выйти</button>';
   } else {
-    const why = accReason === "denied"
-      ? 'Доступ к аккаунту отклонён. Разрешите его в настройках страницы, затем нажмите «Войти» ещё раз.'
-      : accReason === "unavailable"
-      ? 'Вход недоступен в этом окне: сайт должен быть открыт в claude.ai или в приложении Claude под вашим аккаунтом.'
-      : accReason ? 'Не удалось войти: ' + esc(accReason) + '.'
-      : 'Вход выполняется через аккаунт Claude.';
-    h = '<b>Вы гость</b><p>' + why + ' Пока вы гость, слова сохраняются только на этом устройстве.</p>' +
-        (accReason === "denied" ? '<p><button class="b" id="perm">Открыть настройки доступа</button></p>' : '') +
-        '<button class="b pri" id="retry">Войти</button>';
+    h = '<b>Вход или регистрация</b><p>Войдите, чтобы сохранять слова в аккаунте и делиться модулями.</p>' +
+      '<input class="ei" id="aem" type="email" placeholder="Почта" autocomplete="email">' +
+      '<input class="ei" id="apw" type="password" placeholder="Пароль (не короче 6 символов)" autocomplete="current-password">' +
+      '<div class="arow"><button class="b pri" id="alogin">Войти</button><button class="b" id="asign">Регистрация</button></div>' +
+      '<button class="skip" id="aforgot">Забыли пароль?</button><p class="amsg" id="amsg"></p>';
   }
   $("acc").innerHTML = h;
 }
-async function connect(manual){
-  accState = "connecting"; accReason = ""; renderAcc();
+async function doAuth(kind){
+  if (!sb || authBusy) return;
+  const email = $("aem").value.trim(), password = $("apw").value;
+  if (!email || password.length < 6) { setMsg("Введите почту и пароль не короче 6 символов.", true); return; }
+  authBusy = true; setMsg("Подождите…");
   try {
-    const perms = await claude.use("permissions");
-    if (perms) {
-      let st = await perms.state();
-      if (manual && (st.db === "prompt" || st.user === "prompt")) st = await perms.request(["db", "user"]);
-      if (st.db === "denied" || st.user === "denied") { accReason = "denied"; throw new Error("denied"); }
-    }
-    const [u, d] = await Promise.all([claude.use("user"), claude.use("db")]);
-    const id = u ? await u.id() : null;
-    if (!u || !d || !id) { accReason = "unavailable"; throw new Error("unavailable"); }
-    let name = ""; try { name = (await u.me()).name || ""; } catch (_) {}
-    const ref = d.doc("data/users/" + id + "/library");
-    const snap = await ref.get();
-    const data = snap.exists ? snap.data() : null;
-    if (data && typeof data.json === "string") {
-      const m = JSON.parse(data.json);
-      if (Array.isArray(m)) {
-        mods = m; cur = null;
-        try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (_) {}
-        route();
-      }
+    if (kind === "up") {
+      const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+      if (error) throw error;
+      if (!data.session) setMsg("Проверьте почту: мы отправили письмо для подтверждения.", false);
     } else {
-      await ref.set({json: JSON.stringify(mods)});
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
     }
-    dbh = d; myId = id; startShared(u);
-    cloud = ref; who = name; accState = "in"; accErr = false;
-  } catch (e) {
-    cloud = null; accState = "out";
-    if (!accReason) accReason = (e && (e.code || e.message)) ? String(e.code || e.message).slice(0, 80) : "ошибка";
-  }
+  } catch (e) { setMsg(authText(e), true); }
+  authBusy = false;
+}
+async function forgot(){
+  const email = $("aem").value.trim();
+  if (!email) { setMsg("Введите почту, на которую отправить ссылку.", true); return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  setMsg(error ? authText(error) : "Если такая почта зарегистрирована, мы отправили письмо со ссылкой.", !!error);
+}
+async function setNewPassword(){
+  const pw = $("apn").value;
+  if (pw.length < 6) { setMsg("Пароль не короче 6 символов.", true); return; }
+  const { error } = await sb.auth.updateUser({ password: pw });
+  if (error) { setMsg(authText(error), true); return; }
+  accState = "in"; renderAcc();
+  if (!synced) loadAccount();
+}
+async function logout(){
+  await sb.auth.signOut();
+  mods = seed(); cur = null; synced = false; dirty = false; clearTimeout(saveT);
+  try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (e) {}
+  location.hash = "lib"; route();
+}
+async function loadAccount(){
+  try {
+    const { data, error } = await sb.from("libraries").select("data").eq("user_id", user.id).maybeSingle();
+    if (error) throw error;
+    if (data && Array.isArray(data.data)) {
+      mods = data.data; cur = null;
+      try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (_) {}
+      route();
+    } else {
+      const r = await sb.from("libraries").upsert({ user_id: user.id, data: mods });
+      if (r.error) throw r.error;
+    }
+    synced = true; accErr = false;
+    await loadShared();
+  } catch (e) { accErr = true; accErrText = (e && e.message) || "ошибка"; }
   renderAcc();
 }
+async function onSession(event, session){
+  if (event === "PASSWORD_RECOVERY") {
+    user = session ? session.user : null; accState = "recovery";
+    $("acc").classList.remove("hidden"); renderAcc(); return;
+  }
+  const u = session ? session.user : null;
+  if (u && (!user || user.id !== u.id)) {
+    user = u; if (accState !== "recovery") accState = "in";
+    renderAcc(); renderShare(); await loadAccount();
+  } else if (!u) {
+    user = null; accState = "out"; synced = false; mineRows = []; others = [];
+    renderAcc(); renderOthers(); renderShare();
+  } else {
+    user = u; if (accState !== "recovery") accState = "in";
+  }
+}
+function initAuth(){
+  if (!sb) { accState = "out"; renderAcc(); return; }
+  sb.auth.onAuthStateChange((event, session) => { setTimeout(() => onSession(event, session), 0); });
+}
 function cloudSave(){
-  if (!cloud) return;
+  if (!sb || !user || !synced) return;
   dirty = true; clearTimeout(saveT); saveT = setTimeout(flush, 600);
 }
 async function flush(){
   if (saving) { saveT = setTimeout(flush, 300); return; }
-  if (!dirty || !cloud) return;
+  if (!dirty || !user) return;
   saving = true; dirty = false;
-  try { await cloud.set({json: JSON.stringify(mods)}); accErr = false; } catch (e) { accErr = true; }
-  saving = false; renderAcc();
+  const { error } = await sb.from("libraries").upsert({ user_id: user.id, data: mods });
+  const was = accErr; accErr = !!error; accErrText = error ? error.message : "";
+  saving = false; if (was !== accErr) renderAcc();
 }
 $("me").onclick = () => $("acc").classList.toggle("hidden");
-$("acc").onclick = async e => {
-  if (e.target.id === "retry") connect(true);
-  if (e.target.id === "perm") {
-    try { const perms = await claude.use("permissions"); if (perms) await perms.manage(); } catch (_) {}
-    connect(true);
-  }
+$("acc").onclick = e => {
+  const id = e.target.id;
+  if (id === "alogin") doAuth("in");
+  else if (id === "asign") doAuth("up");
+  else if (id === "aforgot") forgot();
+  else if (id === "logout") logout();
+  else if (id === "anew") setNewPassword();
 };
+$("acc").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  if (e.target.id === "aem" || e.target.id === "apw") doAuth("in");
+  if (e.target.id === "apn") setNewPassword();
+});
 
 let L = null;
 const norm = v => String(v).trim().toLowerCase().replace(/\s+/g, " ");
@@ -377,38 +442,26 @@ document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.tagName !== "BUTTON" && $("lnext")) advance();
 });
 
-let dbh = null, myId = null, mine = [], others = [], names = {}, unsub = null, shareErr = "";
-function startShared(u){
-  try {
-    if (unsub) unsub();
-    unsub = dbh.collection("shared").onSnapshot(snap => {
-      mine = []; others = [];
-      snap.docs.forEach(doc => {
-        let arr = []; try { arr = JSON.parse((doc.data() || {}).json || "[]"); } catch (_) {}
-        if (!Array.isArray(arr)) return;
-        if (doc.id === myId) mine = arr;
-        else arr.forEach(m => others.push({owner: doc.id, name: String(m.name || ""), cards: Array.isArray(m.cards) ? m.cards : []}));
-      });
-      const ids = [...new Set(others.map(o => o.owner))];
-      const done = () => { renderOthers(); renderShare(); };
-      (ids.length ? u.profiles(ids) : Promise.resolve({}))
-        .then(ps => { ids.forEach(i => { names[i] = (ps[i] && ps[i].name) || ""; }); done(); })
-        .catch(done);
-    }, err => { shareErr = (err && (err.code || err.message)) || "ошибка"; renderOthers(); renderShare(); });
-  } catch (e) {}
+let mineRows = [], others = [], shareErr = "";
+async function loadShared(){
+  if (!sb || !user) return;
+  const { data, error } = await sb.from("shared_modules").select("id,owner_id,author,name,cards").order("name");
+  if (error) shareErr = error.message;
+  else { shareErr = ""; mineRows = data.filter(r => r.owner_id === user.id); others = data.filter(r => r.owner_id !== user.id); }
+  renderOthers(); renderShare();
 }
 function renderOthers(){
   const sec = $("oth");
-  if (!dbh) { sec.classList.add("hidden"); return; }
+  if (!user) { sec.classList.add("hidden"); return; }
   sec.classList.remove("hidden");
-  const own = mine.map(m => {
-    const n = (m.cards || []).length, here = mods.some(x => x.id === m.id);
-    return '<div class="omod"><span><b>' + esc(m.name) + '</b><small>Ваш модуль, ' + n + ' ' + plural(n) + '</small></span>' +
-      (here ? '<button class="b" data-own="' + escA(m.id) + '">Открыть</button>' : '') + '</div>';
+  const own = mineRows.map(r => {
+    const n = (r.cards || []).length, m = mods.find(x => x.sharedId === r.id);
+    return '<div class="omod"><span><b>' + esc(r.name) + '</b><small>Ваш модуль, ' + n + ' ' + plural(n) + '</small></span>' +
+      (m ? '<button class="b" data-own="' + escA(m.id) + '">Открыть</button>' : '') + '</div>';
   });
   const oth = others.map((o, i) => {
-    const n = o.cards.length;
-    return '<div class="omod"><span><b>' + esc(o.name) + '</b><small>от ' + esc(names[o.owner] || "участника") + ', ' + n + ' ' + plural(n) + '</small></span>' +
+    const n = (o.cards || []).length;
+    return '<div class="omod"><span><b>' + esc(o.name) + '</b><small>от ' + esc(o.author || "участника") + ', ' + n + ' ' + plural(n) + '</small></span>' +
       '<button class="b pri" data-i="' + i + '">Добавить</button></div>';
   });
   $("omods").innerHTML = own.concat(oth).join("") || '<div class="empty">Пока никто не поделился модулями.</div>';
@@ -417,28 +470,44 @@ $("omods").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.own) { location.hash = "m-" + b.dataset.own; return; }
   const o = others[+b.dataset.i]; if (!o) return;
-  mods.push({id: uid(), name: o.name, cards: o.cards.map(c => ({w: String(c.w), t: String(c.t)}))});
+  mods.push({id: uid(), name: o.name, cards: (o.cards || []).map(c => ({w: String(c.w), t: String(c.t)}))});
   save(); renderLib(); b.textContent = "Добавлено"; b.disabled = true;
 };
 function renderShare(){
   const box = $("shr"); if (!cur) return;
-  if (!dbh) { box.innerHTML = '<p>Войдите в аккаунт, чтобы делиться модулями.</p>'; return; }
-  const on = mine.some(m => m.id === cur.id);
+  if (!user) { box.innerHTML = '<p>Войдите в аккаунт, чтобы делиться модулями.</p>'; return; }
+  const on = !!cur.sharedId && mineRows.some(r => r.id === cur.sharedId);
   box.innerHTML = (on
-    ? '<p>Модуль в общем доступе: его могут добавить себе все, у кого есть доступ к сайту.</p><button class="b" id="shUp">Обновить общую копию</button><button class="b" id="shOff">Закрыть доступ</button>'
-    : '<p>Поделитесь модулем: его смогут добавить себе все, у кого есть доступ к сайту. У них будет своя копия.</p><button class="b pri" id="shOn">Поделиться модулем</button>') +
+    ? '<p>Модуль в общем доступе: его могут добавить себе все пользователи сайта.</p><button class="b" id="shUp">Обновить общую копию</button><button class="b" id="shOff">Закрыть доступ</button>'
+    : '<p>Поделитесь модулем: его смогут добавить себе все пользователи сайта. У них будет своя копия. Ваше имя в каталоге: <b>' + esc(authorName()) + '</b> (часть почты до @).</p><button class="b pri" id="shOn">Поделиться модулем</button>') +
     (shareErr ? '<p class="err">Не удалось: ' + esc(shareErr) + '</p>' : '');
 }
-async function writeMine(list){
-  try { await dbh.doc("shared/" + myId).set({json: JSON.stringify(list)}); mine = list; shareErr = ""; }
-  catch (e) { shareErr = (e && (e.code || e.message)) || "ошибка"; }
-  renderShare(); renderOthers();
+async function shareNow(){
+  const c = cur; if (!c || !user) return;
+  const row = { name: c.name, cards: c.cards, author: authorName() };
+  let error = null;
+  if (c.sharedId && mineRows.some(r => r.id === c.sharedId)) {
+    ({ error } = await sb.from("shared_modules").update(row).eq("id", c.sharedId));
+  } else {
+    const res = await sb.from("shared_modules").insert(row).select("id").single();
+    error = res.error;
+    if (!error) { c.sharedId = res.data.id; save(); }
+  }
+  shareErr = error ? error.message : "";
+  await loadShared();
+}
+async function unshare(){
+  const c = cur; if (!c || !user || !c.sharedId) return;
+  const { error } = await sb.from("shared_modules").delete().eq("id", c.sharedId);
+  if (!error) { delete c.sharedId; save(); }
+  shareErr = error ? error.message : "";
+  await loadShared();
 }
 $("shr").onclick = e => {
-  if (!cur || !dbh) return;
-  const id = e.target.id, c = cur;
-  if (id === "shOn" || id === "shUp") writeMine(mine.filter(m => m.id !== c.id).concat([{id: c.id, name: c.name, cards: c.cards}]));
-  if (id === "shOff") writeMine(mine.filter(m => m.id !== c.id));
+  if (!cur || !user) return;
+  const id = e.target.id;
+  if (id === "shOn" || id === "shUp") { e.target.disabled = true; shareNow(); }
+  if (id === "shOff") { e.target.disabled = true; unshare(); }
 };
 
 const TKEY = "english-theme", mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -461,4 +530,4 @@ renderTheme();
 
 route();
 renderAcc();
-if (!document.documentElement.classList.contains("local")) connect();
+initAuth();

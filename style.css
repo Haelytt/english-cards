@@ -149,5 +149,9 @@ button.b.sm{padding:8px 14px;font-size:.85rem}
 li button.ico{display:flex;align-items:center;padding:6px 8px}
 @media (prefers-reduced-motion: reduce){.card,.mod{transition:none}}
 
-/* Вход и общий каталог работают только внутри claude.ai, локально они скрыты (пока не подключён Supabase) */
-.local .me:not(.ic),.local .acc,.local .shr,.local #oth{display:none!important}
+
+.acc .ei{width:100%;margin-bottom:8px}
+.arow{display:flex;gap:8px;margin:4px 0 6px}
+.amsg{margin:10px 0 0;font-size:.85rem}
+.amsg.err{color:var(--accent-ink)}
+.acc .skip{padding:4px 0}
