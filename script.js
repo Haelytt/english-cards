@@ -1,13 +1,6 @@
 const KEY = "english-modules-v2", OLD = "english-cards-v1";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const seed = () => [
-  {id:uid(), name:"Основные слова", cards:[
-    {w:"serendipity", t:"счастливая случайность"},{w:"reliable", t:"надёжный"},
-    {w:"to figure out", t:"разобраться, понять"},{w:"although", t:"хотя"},{w:"breakthrough", t:"прорыв"}]},
-  {id:uid(), name:"В путешествии", cards:[
-    {w:"luggage", t:"багаж"},{w:"boarding pass", t:"посадочный талон"},
-    {w:"delay", t:"задержка"},{w:"to book", t:"бронировать"}]}
-];
+const seed = () => [];
 let mods = null;
 try {
   const s = localStorage.getItem(KEY);
