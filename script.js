@@ -43,7 +43,7 @@ function renderCard(){
   const n = cur.cards.length;
   $("sub").textContent = n + " " + plural(n);
   $("start").disabled = !n; $("learn").disabled = !n;
-  $("start").textContent = n ? "Учить слова" : "Добавьте слова, чтобы начать";
+  $("start").textContent = n ? "Карточки" : "Добавьте слова, чтобы начать";
 }
 let editIdx = -1;
 const escA = v => esc(v).replace(/"/g, "&quot;");
@@ -141,7 +141,7 @@ function saveEdit(){
 $("list").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
   const act = b.dataset.act, i = +b.dataset.i;
-  if (act === "edit") { editIdx = i; renderList(); $("ew").focus(); }
+  if (act === "edit") { editIdx = i; renderList(); const ew = $("ew"); ew.focus(); ew.setSelectionRange(ew.value.length, ew.value.length); }
   else if (act === "cancel") { editIdx = -1; renderList(); }
   else if (act === "save") saveEdit();
   else if (act === "del") { cur.cards.splice(i, 1); editIdx = -1; save(); renderStudy(); }
@@ -201,6 +201,8 @@ function authText(e){
   if (/invalid login/i.test(m)) return "Неверная почта или пароль.";
   if (/already registered|already been registered/i.test(m)) return "Эта почта уже зарегистрирована, нажмите «Войти».";
   if (/not confirmed/i.test(m)) return "Подтвердите почту по ссылке из письма.";
+  if ((e && e.code) === "over_email_send_rate_limit" || /email rate limit/i.test(m)) return "Сервис сейчас не может отправить письмо (достигнут лимит). Попробуйте позже.";
+  if (/once every|only request this/i.test(m)) return "Подождите минуту и попробуйте снова.";
   if (/rate limit|too many/i.test(m)) return "Слишком много попыток, попробуйте позже.";
   if (/password/i.test(m)) return "Пароль слишком короткий или простой.";
   return "Ошибка: " + m;

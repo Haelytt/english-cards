@@ -155,3 +155,9 @@ li button.ico{display:flex;align-items:center;padding:6px 8px}
 .amsg{margin:10px 0 0;font-size:.85rem}
 .amsg.err{color:var(--accent-ink)}
 .acc .skip{padding:4px 0}
+
+@media (max-width:520px){
+  .top{flex-direction:column;align-items:flex-start;gap:12px;margin-bottom:10px}
+  .top h1{overflow-wrap:normal}
+  .me{max-width:240px}
+}
