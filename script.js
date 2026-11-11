@@ -315,17 +315,41 @@ async function doAuth(kind){
 function setNickMsg(t, err){
   const m = $("nmsg"); if (m) { m.textContent = t; m.className = "amsg" + (err ? " err" : ""); }
 }
+function showAuthExpired(){
+  user = null; accState = "out"; synced = false;
+  renderAcc(); renderOthers(); renderShare();
+  $("acc").classList.remove("hidden");
+  setMsg("Сессия истекла. Войдите снова и повторите сохранение.", true);
+}
 async function saveNickname(){
   if (!sb || !user) return;
   const input = $("anickEdit"), nick = input ? input.value.trim().replace(/ +/g, " ") : "";
   if (nick.length < 2 || nick.length > 24) { setNickMsg("Введите никнейм от 2 до 24 символов.", true); return; }
   const b = $("saveNick"); if (b) b.disabled = true;
   setNickMsg("Сохраняем…");
-  const { data, error } = await sb.auth.updateUser({ data: { nickname: nick } });
-  if (error) { if (b) b.disabled = false; setNickMsg(authText(error), true); return; }
-  user = data && data.user ? data.user : user;
-  renderAcc(); renderShare();
-  setNickMsg("Никнейм сохранён.");
+  try {
+    const current = await sb.auth.getSession();
+    if (!current.data || !current.data.session) {
+      const refreshed = await sb.auth.refreshSession();
+      if (!refreshed.data || !refreshed.data.session) { showAuthExpired(); return; }
+    }
+    let result = await sb.auth.updateUser({ data: { nickname: nick } });
+    if (result.error && /auth session missing|jwt expired|refresh token/i.test(String(result.error.message || ""))) {
+      const refreshed = await sb.auth.refreshSession();
+      if (refreshed.data && refreshed.data.session) result = await sb.auth.updateUser({ data: { nickname: nick } });
+    }
+    if (result.error) {
+      if (/auth session missing|jwt expired|refresh token/i.test(String(result.error.message || ""))) showAuthExpired();
+      else { if (b) b.disabled = false; setNickMsg(authText(result.error), true); }
+      return;
+    }
+    user = result.data && result.data.user ? result.data.user : user;
+    renderAcc(); renderShare();
+    setNickMsg("Никнейм сохранён.");
+  } catch (e) {
+    if (b) b.disabled = false;
+    setNickMsg(authText(e), true);
+  }
 }
 async function forgot(){
   const email = $("aem").value.trim();
