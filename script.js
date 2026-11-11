@@ -248,7 +248,10 @@ try {
     sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
   }
 } catch (e) { sb = null; }
-const authorName = () => (user && user.email ? user.email.split("@")[0] : "участник");
+const authorName = () => {
+  const nick = user && user.user_metadata && String(user.user_metadata.nickname || "").trim();
+  return nick || (user && user.email ? user.email.split("@")[0] : "участник");
+};
 function setMsg(t, err){ const m = $("amsg"); if (m) { m.textContent = t; m.className = "amsg" + (err ? " err" : ""); } }
 function authText(e){
   const m = String((e && e.message) || e || "");
@@ -272,16 +275,18 @@ function renderAcc(){
     h = '<p>Проверяем вход…</p>';
   } else if (accState === "recovery") {
     h = '<b>Новый пароль</b><p>Придумайте новый пароль для входа.</p>' +
-      '<input class="ei" id="apn" type="password" placeholder="Новый пароль" autocomplete="new-password">' +
+      '<div class="pwfield"><input class="ei" id="apn" type="password" placeholder="Новый пароль" autocomplete="new-password"><button class="pwtoggle" type="button" data-pass="apn" aria-label="Показать пароль" aria-pressed="false">Показать</button></div>' +
       '<div class="arow"><button class="b pri" id="anew">Сохранить пароль</button></div><p class="amsg" id="amsg"></p>';
   } else if (user) {
-    h = '<b>' + esc(user.email || "Аккаунт") + '</b><p>Вы вошли. Модули и слова хранятся в вашем аккаунте и доступны на всех устройствах.</p>' +
+    h = '<b>' + esc(authorName()) + '</b><p>Вы вошли. Модули и слова хранятся в вашем аккаунте и доступны на всех устройствах.</p>' +
+      '<label class="nicklabel" for="anickEdit">Никнейм</label><div class="arow"><input class="ei" id="anickEdit" type="text" value="' + escA(authorName()) + '" autocomplete="nickname" maxlength="24"><button class="b" id="saveNick">Сохранить</button></div><p class="amsg" id="nmsg"></p>' +
       (accErr ? '<p class="amsg err">Не удалось синхронизировать: ' + esc(accErrText) + '</p>' : '') +
       '<button class="b" id="logout">Выйти</button>';
   } else {
     h = '<b>Вход или регистрация</b><p>Войдите, чтобы сохранять слова в аккаунте и делиться модулями.</p>' +
+      '<input class="ei" id="anick" type="text" placeholder="Никнейм (для регистрации)" autocomplete="nickname" maxlength="24">' +
       '<input class="ei" id="aem" type="email" placeholder="Почта" autocomplete="email">' +
-      '<input class="ei" id="apw" type="password" placeholder="Пароль (не короче 6 символов)" autocomplete="current-password">' +
+      '<div class="pwfield"><input class="ei" id="apw" type="password" placeholder="Пароль (не короче 6 символов)" autocomplete="current-password"><button class="pwtoggle" type="button" data-pass="apw" aria-label="Показать пароль" aria-pressed="false">Показать</button></div>' +
       '<div class="arow"><button class="b pri" id="alogin">Войти</button><button class="b" id="asign">Регистрация</button></div>' +
       '<button class="skip" id="aforgot">Забыли пароль?</button><p class="amsg" id="amsg"></p>';
   }
@@ -289,12 +294,15 @@ function renderAcc(){
 }
 async function doAuth(kind){
   if (!sb || authBusy) return;
-  const email = $("aem").value.trim(), password = $("apw").value;
+  const email = $("aem").value.trim(), nickname = $("anick").value.trim().replace(/\s+/g, " "), password = $("apw").value;
   if (!email || password.length < 6) { setMsg("Введите почту и пароль не короче 6 символов.", true); return; }
+  if (kind === "up" && (nickname.length < 2 || nickname.length > 24)) {
+    setMsg("Введите никнейм от 2 до 24 символов.", true); return;
+  }
   authBusy = true; setMsg("Подождите…");
   try {
     if (kind === "up") {
-      const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+      const { data, error } = await sb.auth.signUp({ email, password, options: { data: { nickname }, emailRedirectTo: location.origin + location.pathname } });
       if (error) throw error;
       if (!data.session) setMsg("Проверьте почту: мы отправили письмо для подтверждения.", false);
     } else {
@@ -303,6 +311,21 @@ async function doAuth(kind){
     }
   } catch (e) { setMsg(authText(e), true); }
   authBusy = false;
+}
+function setNickMsg(t, err){
+  const m = $("nmsg"); if (m) { m.textContent = t; m.className = "amsg" + (err ? " err" : ""); }
+}
+async function saveNickname(){
+  if (!sb || !user) return;
+  const input = $("anickEdit"), nick = input ? input.value.trim().replace(/ +/g, " ") : "";
+  if (nick.length < 2 || nick.length > 24) { setNickMsg("Введите никнейм от 2 до 24 символов.", true); return; }
+  const b = $("saveNick"); if (b) b.disabled = true;
+  setNickMsg("Сохраняем…");
+  const { data, error } = await sb.auth.updateUser({ data: { nickname: nick } });
+  if (error) { if (b) b.disabled = false; setNickMsg(authText(error), true); return; }
+  user = data && data.user ? data.user : user;
+  renderAcc(); renderShare();
+  setNickMsg("Никнейм сохранён.");
 }
 async function forgot(){
   const email = $("aem").value.trim();
@@ -375,17 +398,30 @@ async function flush(){
 }
 $("me").onclick = () => $("acc").classList.toggle("hidden");
 $("acc").onclick = e => {
+  const toggle = e.target.closest("[data-pass]");
+  if (toggle) {
+    const input = $(toggle.dataset.pass);
+    if (!input) return;
+    const visible = input.type === "text";
+    input.type = visible ? "password" : "text";
+    toggle.textContent = visible ? "Показать" : "Скрыть";
+    toggle.setAttribute("aria-label", visible ? "Показать пароль" : "Скрыть пароль");
+    toggle.setAttribute("aria-pressed", String(!visible));
+    return;
+  }
   const id = e.target.id;
   if (id === "alogin") doAuth("in");
   else if (id === "asign") doAuth("up");
   else if (id === "aforgot") forgot();
   else if (id === "logout") logout();
   else if (id === "anew") setNewPassword();
+  else if (id === "saveNick") saveNickname();
 };
 $("acc").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
-  if (e.target.id === "aem" || e.target.id === "apw") doAuth("in");
+  if (e.target.id === "aem" || e.target.id === "anick" || e.target.id === "apw") doAuth("in");
   if (e.target.id === "apn") setNewPassword();
+  if (e.target.id === "anickEdit") saveNickname();
 });
 
 let L = null;
@@ -394,7 +430,7 @@ const shuf = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map
 $("learn").onclick = () => { location.hash = "l-" + cur.id; };
 $("lx").onclick = () => closeStudy();
 function beginLearn(){
-  L = {terms: cur.cards.map(c => ({c, stage: 0})), last: null, ok: 0, tries: 0, streak: 0, cur: null, locked: false, mode: "c", opts: [], right: 0};
+  L = {terms: cur.cards.map(c => ({c, stage: 0})), last: null, ok: 0, tries: 0, streak: 0, pct: 0, cur: null, locked: false, mode: "c", opts: [], right: 0};
   $("ln").classList.remove("hidden"); document.body.style.overflow = "hidden";
   nextQ();
 }
@@ -404,9 +440,24 @@ function endLearn(){
 }
 function lprog(){
   const total = L.terms.length * 2, done = L.terms.reduce((a, t) => a + t.stage, 0), pct = done / total * 100;
-  $("lfill").style.width = pct + "%"; $("lbadge").style.left = pct + "%";
-  $("lbadge").textContent = done; $("lend").textContent = total;
-  $("lbar").classList.toggle("hot", L.streak >= 3);
+  const bar = $("lbar"), fill = $("lfill"), badge = $("lbadge"), fire = $("lfire");
+  const prevPct = L.pct || 0, hot = L.streak >= 5, activating = hot && !bar.classList.contains("hot");
+  const setPos = value => {
+    fill.style.width = value + "%";
+    badge.style.left = value + "%";
+    fire.style.left = value + "%";
+  };
+  if (activating) {
+    setPos(prevPct);
+    bar.classList.add("hot");
+    const session = L;
+    requestAnimationFrame(() => { if (L === session) setPos(pct); });
+  } else {
+    bar.classList.toggle("hot", hot);
+    setPos(pct);
+  }
+  badge.textContent = done; $("lend").textContent = total;
+  L.pct = pct;
 }
 function advance(){ if (L && L.locked) nextQ(); }
 function nextQ(){
@@ -451,7 +502,7 @@ function grade(ok){
 }
 function showFb(ok, ans){
   const fb = $("lfb");
-  if (ok) { fb.innerHTML = '<p class="fbok">Верно!</p>'; setTimeout(advance, 800); return; }
+  if (ok) { fb.innerHTML = '<p class="fbok">Верно!</p>'; setTimeout(advance, 650); return; }
   fb.innerHTML = '<p class="fbno">Правильный ответ: <b>' + esc(ans) + '</b></p><button class="b pri" id="lnext">Дальше</button>';
   $("lnext").onclick = advance; $("lnext").focus();
 }
@@ -566,7 +617,7 @@ function modKey(cards){
 }
 function boardHtml(rows, note){
   const row = (r, pos) => '<div class="brow' + (r.user_id === user.id ? " mine" : "") + '"><span class="bpos">' + pos + '</span><span class="bname">' +
-    (pos === 1 ? '<img class="crown" src="' + CROWN_SRC + '" alt="1 место">' : "") + esc(r.author || "участник") +
+    (pos === 1 ? '<img class="crown" src="' + CROWN_SRC + '" alt="1 место">' : "") + esc(r.user_id === user.id ? authorName() : (r.author || "участник")) +
     '</span><span class="btime">' + fmtT(r.time_ms, true) + '</span></div>';
   const mineIdx = rows.findIndex(r => r.user_id === user.id);
   let h = '<h2>Рейтинг по этому набору слов</h2>' + (note ? '<p class="sub">' + esc(note) + '</p>' : "") +
@@ -653,7 +704,7 @@ function renderShare(){
   const on = !!cur.sharedId && mineRows.some(r => r.id === cur.sharedId);
   box.innerHTML = (on
     ? '<p>Модуль в общем доступе: его могут добавить себе все пользователи сайта.</p><button class="b" id="shUp">Обновить общую копию</button><button class="b" id="shOff">Закрыть доступ</button>'
-    : '<p>Поделитесь модулем: его смогут добавить себе все пользователи сайта. У них будет своя копия. Ваше имя в каталоге: <b>' + esc(authorName()) + '</b> (часть почты до @).</p><button class="b pri" id="shOn">Поделиться модулем</button>') +
+    : '<p>Поделитесь модулем: его смогут добавить себе все пользователи сайта. У них будет своя копия. Ваш никнейм в каталоге: <b>' + esc(authorName()) + '</b>.</p><button class="b pri" id="shOn">Поделиться модулем</button>') +
     (shareErr ? '<p class="err">Не удалось: ' + esc(shareErr) + '</p>' : '');
 }
 async function shareNow(){
