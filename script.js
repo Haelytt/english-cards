@@ -24,14 +24,19 @@ const save = () => {
 const plural = n => { const a = n % 10, b = n % 100; return (a === 1 && b !== 11) ? "слово" : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? "слова" : "слов"; };
 
 let cur = null, idx = 0, sure = false;
+let viewedFriend = null;
+let profileAvatarPending = false, pendingAvatar = undefined, profileSavedTimer = null, avatarStream = null;
 
 function renderLib(){
-  $("mods").innerHTML = mods.length ? mods.map(m => {
+  const render = list => list.map(m => {
     const n = m.cards.length;
     const pv = m.cards.slice(0, 3).map(c => c.w).join(", ");
     return '<button class="mod" data-id="' + m.id + '"><span><b>' + esc(m.name) + '</b><small>' +
       (pv ? esc(pv) + (n > 3 ? "…" : "") : "Пока пусто") + '</small></span><i>' + n + '</i></button>';
-  }).join("") : '<div class="empty">Модулей пока нет. Создайте первый ниже.</div>';
+  }).join("");
+  const own = mods.filter(m => !m.addedFromFriend), added = mods.filter(m => m.addedFromFriend);
+  $("mods").innerHTML = (own.length ? '<h2 class="own-title">Мои модули</h2>' + render(own) : '<div class="empty">Модулей пока нет. Создайте первый выше.</div>') +
+    (added.length ? '<h2 class="added-title">Добавленные модули</h2>' + render(added) : "");
 }
 $("mods").onclick = e => { const b = e.target.closest(".mod"); if (b) location.hash = "m-" + b.dataset.id; };
 function addMod(){
@@ -152,6 +157,111 @@ function add(){
 }
 $("addBtn").onclick = add;
 [$("w"), $("t")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") add(); }));
+
+function ioSettingsMarkup(prefix){
+  return '<div class="io-grid">' +
+    '<label class="io-field">Между термином и определением<select id="' + prefix + 'Pair"><option value="tab">Табуляция</option><option value="comma">Запятая</option><option value="custom">Свой разделитель</option></select><input class="hidden" id="' + prefix + 'PairCustom" placeholder="Например: -"></label>' +
+    '<label class="io-field">Между строками<select id="' + prefix + 'Row"><option value="newline">Разрыв строки</option><option value="semicolon">Точка с запятой</option><option value="custom">Свой разделитель</option></select><input class="hidden" id="' + prefix + 'RowCustom" placeholder="Например: |"></label>' +
+    '</div>';
+}
+function ioSeparator(selectId, customId, fallback){
+  const value = $(selectId).value;
+  if (value === "tab") return "\t";
+  if (value === "comma") return ",";
+  if (value === "newline") return "\n";
+  if (value === "semicolon") return ";";
+  return $(customId).value || fallback;
+}
+function ioBindSettings(prefix, onChange){
+  [["Pair", "PairCustom"], ["Row", "RowCustom"]].forEach(([kind, custom]) => {
+    const select = $(prefix + kind), input = $(prefix + custom);
+    const update = () => {
+      input.classList.toggle("hidden", select.value !== "custom");
+      onChange();
+    };
+    select.addEventListener("change", update);
+    input.addEventListener("input", onChange);
+    update();
+  });
+}
+function refreshExportText(){
+  if (!cur || !$("ioText")) return;
+  const pair = ioSeparator("exportPair", "exportPairCustom", "\t");
+  const row = ioSeparator("exportRow", "exportRowCustom", "\n");
+  let cards = cur.cards.slice();
+  if ($("exportSort").checked) cards.sort((a, b) => String(a.w).localeCompare(String(b.w), "ru", {sensitivity: "base"}));
+  $("ioText").value = cards.map(c => String(c.w) + pair + String(c.t)).join(row);
+}
+function parseImportText(){
+  if (!$("ioText")) return [];
+  const pair = ioSeparator("importPair", "importPairCustom", "\t");
+  const row = ioSeparator("importRow", "importRowCustom", "\n");
+  return $("ioText").value.split(row).map(line => {
+    const text = line.trim(), at = text.indexOf(pair);
+    if (!text || at < 1) return null;
+    const w = text.slice(0, at).trim(), t = text.slice(at + pair.length).trim();
+    return w && t ? {w, t} : null;
+  }).filter(Boolean);
+}
+function refreshImportCount(){
+  const msg = $("ioMsg"); if (!msg) return;
+  const count = parseImportText().length;
+  msg.textContent = count ? "Найдено пар: " + count : "Вставьте строки с термином и определением.";
+}
+function openIO(mode){
+  if (!cur) return;
+  const title = $("ioTitle"), content = $("ioContent");
+  if (mode === "export") {
+    title.textContent = "Экспортировать";
+    content.innerHTML = ioSettingsMarkup("export") +
+      '<label class="io-check"><input type="checkbox" id="exportSort"> В алфавитном порядке</label>' +
+      '<textarea class="io-text" id="ioText" readonly aria-label="Текст для экспорта"></textarea>' +
+      '<div class="io-foot"><p class="io-msg" id="ioMsg">Скопируйте текст и вставьте его в другой сервис.</p><button class="b pri" id="ioCopy">Копировать текст</button></div>';
+    ioBindSettings("export", refreshExportText);
+    $("exportSort").addEventListener("change", refreshExportText);
+    refreshExportText();
+    $("ioCopy").onclick = ioCopy;
+  } else {
+    title.textContent = "Импортировать";
+    content.innerHTML = '<p class="sub">Вставьте пары из Quizlet или таблицы: один термин и перевод в каждой строке.</p>' +
+      ioSettingsMarkup("import") +
+      '<textarea class="io-text" id="ioText" placeholder="to be in the limelight\tбыть в центре внимания\nhave an eye for\tразбираться в чём-либо" aria-label="Текст для импорта"></textarea>' +
+      '<div class="io-foot"><p class="io-msg" id="ioMsg">Вставьте строки с термином и определением.</p><button class="b pri" id="ioApply">Импортировать</button></div>';
+    ioBindSettings("import", refreshImportCount);
+    $("ioText").addEventListener("input", refreshImportCount);
+    $("ioApply").onclick = importCards;
+    refreshImportCount();
+  }
+  $("iom").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+function closeIO(){
+  $("iom").classList.add("hidden");
+  if ($("fs").classList.contains("hidden") && $("ln").classList.contains("hidden") && $("pm").classList.contains("hidden")) document.body.style.overflow = "";
+}
+async function ioCopy(){
+  const text = $("ioText").value;
+  try {
+    await navigator.clipboard.writeText(text);
+    $("ioMsg").textContent = "Текст скопирован.";
+  } catch (_) {
+    $("ioText").focus(); $("ioText").select();
+    document.execCommand("copy");
+    $("ioMsg").textContent = "Текст скопирован.";
+  }
+}
+function importCards(){
+  const cards = parseImportText();
+  if (!cards.length) { $("ioMsg").textContent = "Не найдено ни одной пары. Проверьте разделители."; return; }
+  cur.cards.push(...cards);
+  save(); editIdx = -1; renderStudy(); renderLib(); closeIO();
+}
+$("importBtn").onclick = () => openIO("import");
+$("exportBtn").onclick = () => openIO("export");
+$("ioClose").onclick = closeIO;
+$("iom").onclick = e => { if (e.target.id === "iom") closeIO(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("iom").classList.contains("hidden")) closeIO(); });
+
 function saveEdit(){
   const w = $("ew").value.trim(), t = $("et").value.trim();
   if (!w || !t) { (w ? $("et") : $("ew")).focus(); return; }
@@ -220,6 +330,15 @@ document.addEventListener("keydown", e => {
 
 function route(){
   const h = location.hash.slice(1), mm = /^([mslp])-([a-z0-9]+)$/.exec(h);
+  const friendRoute = /^friend-([0-9a-f-]{36})$/i.exec(h);
+  if ((h === "profile" || friendRoute) && user) {
+    viewedFriend = friendRoute ? friendRoute[1] : null;
+    cur = null; endStudy(); endLearn(); endPick();
+    $("lib").classList.add("hidden"); $("study").classList.add("hidden"); $("profile").classList.remove("hidden");
+    renderProfile(); if (viewedFriend) loadFriendProfile(); else loadFriends(); window.scrollTo(0, 0); return;
+  }
+  viewedFriend = null;
+  $("profile").classList.add("hidden");
   const m = mm ? mods.find(x => x.id === mm[2]) : null;
   if (!m) {
     cur = null; endStudy(); endLearn(); endPick();
@@ -243,6 +362,8 @@ window.addEventListener("hashchange", route);
 const CFG = window.APP_CONFIG || {};
 let sb = null, user = null, accState = "connecting", accErr = false, accErrText = "", authBusy = false;
 let saveT = null, saving = false, dirty = false, synced = false;
+let presenceChannel=null,presenceUserId=null,presenceIdleTimer=null,presenceActive=true;
+const presenceStatuses=new Map();
 try {
   if (window.supabase && /^https:\/\//.test(CFG.SUPABASE_URL || "") && CFG.SUPABASE_KEY && !/ВСТАВЬТЕ/.test(CFG.SUPABASE_KEY)) {
     sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
@@ -252,9 +373,268 @@ const authorName = () => {
   const nick = user && user.user_metadata && String(user.user_metadata.nickname || "").trim();
   return nick || (user && user.email ? user.email.split("@")[0] : "участник");
 };
+function profileKey(){ return user ? "english-profile-" + user.id : ""; }
+function readProfile(){
+  if (!user) return {};
+  try { return JSON.parse(localStorage.getItem(profileKey()) || "{}") || {}; } catch (_) { return {}; }
+}
+const invalidNickPattern = /[^\p{L}\p{M}\p{N}_.]/gu;
+function cleanNicknameInput(input){
+  const start=input.selectionStart, value=input.value.replace(invalidNickPattern,"").replace(/\.{2,}/g,".").replace(/_{2,}/g,"_");
+  if(value!==input.value){input.value=value;const caret=Math.min(start,value.length);input.setSelectionRange(caret,caret);}
+}
+function hasInvalidNicknameChars(value){return /[^\p{L}\p{M}\p{N}_.]/u.test(value)||/\.{2}|_{2}/.test(value);}
+function nicknameTakenError(error){
+  return !!error && (error.code==="23505" || /profiles_nickname_search_uidx|duplicate key.*nickname|nickname_search/i.test(String(error.message||"")));
+}
+async function updateNickname(nick){
+  if(nick.length<2||nick.length>15||hasInvalidNicknameChars(nick))throw {invalidNickname:true};
+  const current=await sb.from("profiles").select("nickname").eq("user_id",user.id).maybeSingle();
+  if(current.error)throw current.error;
+  const previous=current.data?.nickname||authorName();
+  const duplicate=await sb.from("profiles").select("user_id").eq("nickname_search",nick.toLowerCase()).neq("user_id",user.id).maybeSingle();
+  if(duplicate.error)throw duplicate.error;
+  if(duplicate.data)throw {nicknameTaken:true};
+  const profileUpdate=await sb.from("profiles").update({nickname:nick,updated_at:new Date().toISOString()}).eq("user_id",user.id);
+  if(profileUpdate.error)throw profileUpdate.error;
+  const authUpdate=await sb.auth.updateUser({data:{nickname:nick}});
+  if(authUpdate.error){
+    await sb.from("profiles").update({nickname:previous,updated_at:new Date().toISOString()}).eq("user_id",user.id);
+    throw authUpdate.error;
+  }
+  user=authUpdate.data.user||user;
+}
+function avatarMarkup(src){ return src ? '<img src="' + src + '" alt="">' : ""; }
+function updateProfileNav(){
+  const link = $("profileLink"), me = $("me");
+  if (user) {
+    link.classList.remove("hidden"); me.classList.add("hidden");
+    $("navNick").textContent = authorName();
+    const profile=readProfile(), avatar = profile.avatar || "";
+    $("navAvatar").src = avatar;
+    $("navAvatar").classList.toggle("hidden", !avatar);
+    $("navPresence").classList.toggle("hidden",!avatar);
+    applyPresenceDot($("navPresence"),presenceStatuses.get(user.id)||"offline");
+    link.classList.toggle("no-avatar", !avatar);
+  } else { link.classList.add("hidden"); me.classList.remove("hidden"); }
+}
+function applyPresenceDot(dot,status){
+  if(!dot)return;
+  dot.classList.remove("status-online","status-idle","status-offline");
+  const normalized=["online","idle","offline"].includes(status)?status:"offline";
+  dot.classList.add("status-"+normalized);
+  const label=normalized==="online"?"В сети":normalized==="idle"?"Неактивен":"Не в сети";
+  dot.title=label;dot.setAttribute("aria-label",label);
+}
+function refreshPresence(){
+  const next=new Map(),state=presenceChannel?presenceChannel.presenceState():{};
+  Object.entries(state||{}).forEach(([key,entries])=>{
+    (entries||[]).forEach(entry=>{
+      const id=entry.user_id||key;if(!id)return;
+      const status=entry.active?"online":"idle";
+      if(status==="online"||!next.has(id))next.set(id,status);
+    });
+  });
+  if(presenceUserId&&!next.has(presenceUserId))next.set(presenceUserId,presenceActive?"online":"idle");
+  presenceStatuses.clear();next.forEach((status,id)=>presenceStatuses.set(id,status));
+  if(user)applyPresenceDot($("navPresence"),presenceStatuses.get(user.id)||"offline");
+  if(user)applyPresenceDot($("profilePresence"),presenceStatuses.get(user.id)||"offline");
+  document.querySelectorAll("[data-presence-user]").forEach(dot=>applyPresenceDot(dot,presenceStatuses.get(dot.dataset.presenceUser)||"offline"));
+}
+function trackPresence(active){
+  presenceActive=active;
+  if(presenceChannel)presenceChannel.track({user_id:presenceUserId,active,last_active:Date.now()}).catch(()=>{});
+  if(presenceUserId)presenceStatuses.set(presenceUserId,active?"online":"idle");
+  refreshPresence();
+}
+function markPresenceActive(){
+  if(!user||!presenceChannel)return;
+  if(!presenceActive)trackPresence(true);
+  clearTimeout(presenceIdleTimer);
+  presenceIdleTimer=setTimeout(()=>{if(user&&presenceChannel)trackPresence(false);},300000);
+}
+function stopPresence(){
+  clearTimeout(presenceIdleTimer);presenceIdleTimer=null;
+  const channel=presenceChannel;presenceChannel=null;presenceUserId=null;presenceActive=false;
+  if(channel&&sb)sb.removeChannel(channel);
+  presenceStatuses.clear();refreshPresence();
+}
+function startPresence(userId){
+  if(!sb||!userId)return;
+  if(presenceChannel&&presenceUserId===userId)return;
+  stopPresence();presenceUserId=userId;presenceActive=true;
+  presenceChannel=sb.channel("site-presence",{config:{presence:{key:userId}}})
+    .on("presence",{event:"sync"},refreshPresence)
+    .on("presence",{event:"join"},refreshPresence)
+    .on("presence",{event:"leave"},refreshPresence)
+    .subscribe(status=>{
+      if(status==="SUBSCRIBED"&&presenceChannel){
+        trackPresence(true);clearTimeout(presenceIdleTimer);
+        presenceIdleTimer=setTimeout(()=>{if(user&&presenceChannel)trackPresence(false);},300000);
+      }
+    });
+}
+["pointerdown","keydown","touchstart","pointermove","wheel","scroll"].forEach(eventName=>window.addEventListener(eventName,markPresenceActive,{passive:true}));
+function renderProfile(){
+  if (!user) return;
+  $("profileTitle").textContent = viewedFriend ? "Профиль друга" : "Профиль";
+  $("tabProfile").classList.toggle("hidden", !!viewedFriend);
+  $("tabFriends").classList.toggle("hidden", !!viewedFriend);
+  $("tabSettings").classList.toggle("hidden", !!viewedFriend);
+  $("tabModules").textContent = viewedFriend ? "Модули друга" : "Модули";
+  $("profileCard").classList.toggle("hidden", !!viewedFriend);
+  $("friendsPanel").classList.add("hidden");
+  $("profileModules").classList.toggle("hidden", !viewedFriend);
+  if (!viewedFriend) showProfileTab("profile");
+  const data = readProfile();
+  $("profileNick").value = authorName();
+  $("profileDisplayNick").textContent = authorName();
+  $("profileBadge").textContent = data.badge || "";
+  $("profileBadge").classList.toggle("hidden",!data.badge);
+  $("emojiTrigger").classList.toggle("hidden",!!data.badge);
+  $("profileBio").value = data.bio || "";
+  resizeProfileBio();
+  fitProfileNickname();
+  $("profileAvatar").src = data.avatar || "";
+  $("profileAvatar").classList.toggle("hidden", !data.avatar);
+  $("profilePresence").classList.toggle("hidden", !data.avatar);
+  applyPresenceDot($("profilePresence"),presenceStatuses.get(user.id)||"offline");
+  profileAvatarPending = false; pendingAvatar = undefined;
+  syncProfileSave();
+}
+async function loadFriendProfile(){
+  const {data,error}=await sb.from("profiles").select("user_id,nickname").eq("user_id",viewedFriend).maybeSingle();
+  if(error || !data){ $("profileModulesList").innerHTML='<p class="amsg err">Не удалось открыть профиль.</p>'; return; }
+  $("profileTitle").textContent=data.nickname;
+  const res=await sb.rpc("get_friend_modules",{target_user:viewedFriend});
+  if(res.error){ $("profileModulesList").innerHTML='<p class="amsg err">Не удалось загрузить модули друга.</p>'; return; }
+  renderFriendModules(res.data||[],"profileModulesList");
+}
+function renderFriendModules(rows,container){
+  $(container).innerHTML=rows.length?'<h2>Модули</h2>'+rows.map((m,i)=>
+    '<div class="omod"><span><b>'+esc(m.module_name)+'</b><small>'+(m.cards||[]).length+' '+plural((m.cards||[]).length)+'</small></span><button class="b pri" data-import-friend="'+i+'">Добавить к себе</button></div>'
+  ).join(""):'<p class="sub">У друзей пока нет модулей.</p>';
+  $(container).dataset.modules=JSON.stringify(rows);
+}
+async function importFriendModule(container,index,button){
+  let rows=[]; try{rows=JSON.parse($(container).dataset.modules||"[]")}catch(_){}
+  const m=rows[index]; if(!m)return;
+  mods.push({id:uid(),name:m.module_name,addedFromFriend:true,cards:(m.cards||[]).map(c=>({w:String(c.w||""),t:String(c.t||""),...(c.wi?{wi:c.wi}:{}),...(c.ti?{ti:c.ti}:{})}))});
+  save(); renderLib(); button.textContent="Добавлено"; button.disabled=true;
+}
+function showFriendsTab(showFriends){
+  showProfileTab(showFriends ? "friends" : "profile");
+  if (showFriends) loadFriends();
+}
+function showProfileTab(tab){
+  $("profileCard").classList.toggle("hidden",tab!=="profile"||!!viewedFriend);
+  $("friendsPanel").classList.toggle("hidden",tab!=="friends"||!!viewedFriend);
+  $("profileModules").classList.toggle("hidden",tab!=="modules"&&!viewedFriend);
+  $("profileSettings").classList.toggle("hidden",tab!=="settings"||!!viewedFriend);
+  $("profileTitle").textContent=tab==="modules"?(viewedFriend?"Модули друга":"Мои модули"):(tab==="friends"?"Друзья":(tab==="settings"?"Настройки":(viewedFriend?"Профиль друга":"Профиль")));
+  $("tabProfile").classList.toggle("pri",tab==="profile");
+  $("tabFriends").classList.toggle("pri",tab==="friends");
+  $("tabModules").classList.toggle("pri",tab==="modules");
+  $("tabSettings").classList.toggle("pri",tab==="settings");
+}
+function friendCard(profile, action){
+  const id=profile.user_id||"";
+  const avatar = profile.avatar ? '<img class="friend-avatar" src="' + escA(profile.avatar) + '" alt="">' : '<span class="friend-avatar blank"></span>';
+  return '<div class="friend-row"><span class="status-avatar friend-avatar-wrap">' + avatar + '<i class="presence-dot status-offline" data-presence-user="' + escA(id) + '" title="Не в сети"></i></span><span class="friend-name">' + esc(profile.nickname) + '</span><div class="friend-action">' + action + '</div></div>';
+}
+async function searchFriends(){
+  const term = $("friendSearch").value.trim();
+  const box = $("friendResults");
+  if (term.length < 2) { box.innerHTML = '<p class="sub">Введите хотя бы 2 символа.</p>'; return; }
+  box.innerHTML = '<p class="sub">Ищем…</p>';
+  const {data,error} = await sb.from("profiles").select("user_id,nickname").ilike("nickname_search", term.replace(/[%_]/g,"\\$&") + "%").neq("user_id",user.id).limit(12);
+  if (error) { box.innerHTML = '<p class="amsg err">Не удалось выполнить поиск. Примените миграцию Supabase.</p>'; return; }
+  if (!data.length) { box.innerHTML = '<p class="sub">Никого не нашли.</p>'; return; }
+  const ids = data.map(p => p.user_id);
+  const req = await sb.from("friend_requests").select("sender_id,receiver_id,status").or("sender_id.in.(" + ids.join(",") + "),receiver_id.in.(" + ids.join(",") + ")");
+  const states = req.error ? [] : req.data;
+  box.innerHTML = data.map(p => {
+    const r = states.find(x => (x.sender_id === user.id && x.receiver_id === p.user_id) || (x.receiver_id === user.id && x.sender_id === p.user_id));
+    let action = '<button class="b pri" data-friend="send" data-id="' + p.user_id + '">Добавить</button>';
+    if (r && r.status === "accepted") action = '<span class="friend-state">Уже друзья</span>';
+    else if (r && r.status === "pending") action = '<span class="friend-state">' + (r.sender_id === user.id ? "Запрос отправлен" : "Есть входящий запрос") + '</span>';
+    return friendCard(p, action);
+  }).join("");
+  refreshPresence();
+}
+async function loadFriends(){
+  if (!user || !sb) return;
+  $("friendIncoming").innerHTML = '<p class="sub">Загружаем…</p>';
+  $("friendList").innerHTML = "";
+  const {data,error} = await sb.from("friend_requests").select("id,sender_id,receiver_id,status").or("sender_id.eq." + user.id + ",receiver_id.eq." + user.id);
+  if (error) { $("friendIncoming").innerHTML = '<p class="amsg err">Не удалось загрузить друзей. Примените миграцию Supabase.</p>'; return; }
+  const pending = data.filter(r => r.status === "pending" && r.receiver_id === user.id);
+  const accepted = data.filter(r => r.status === "accepted");
+  const peerIds = [...new Set([...pending.map(r => r.sender_id),...accepted.map(r => r.sender_id === user.id ? r.receiver_id : r.sender_id)])];
+  let profiles = [];
+  if (peerIds.length) {
+    const p = await sb.from("profiles").select("user_id,nickname").in("user_id",peerIds);
+    if (!p.error) profiles = p.data;
+  }
+  const byId = id => profiles.find(p => p.user_id === id) || {nickname:"Пользователь"};
+  $("friendIncoming").innerHTML = pending.length ? pending.map(r => friendCard(byId(r.sender_id),
+    '<button class="b pri" data-friend="accept" data-id="' + r.id + '">Принять</button><button class="b" data-friend="reject" data-id="' + r.id + '">Отклонить</button>')).join("") : '<p class="sub">Входящих запросов нет.</p>';
+  $("friendList").innerHTML = accepted.length ? accepted.map(r => {
+    const id=r.sender_id===user.id?r.receiver_id:r.sender_id, p=byId(id);
+    return friendCard(p,'<button class="b" data-open-friend="'+id+'">Профиль</button>');
+  }).join("") : '<p class="sub">Вы ещё не добавили друзей.</p>';
+  refreshPresence();
+}
+async function friendAction(action,id){
+  if (action === "send") {
+    const {error} = await sb.rpc("request_friend",{target_user:id});
+    if (error) {
+      const details = [error.message,error.details,error.hint,error.code].filter(Boolean).join(" · ");
+      $("friendResults").insertAdjacentHTML("afterbegin",'<p class="amsg err friend-error">' + esc(details || "Supabase вернул неизвестную ошибку.") + '</p>');
+      return;
+    }
+    await searchFriends(); await loadFriends();
+  } else {
+    const {error} = await sb.rpc("respond_friend",{request_id:id,accept_request:action === "accept"});
+    if (error) {
+      const details = [error.message,error.details,error.hint,error.code].filter(Boolean).join(" · ");
+      $("friendIncoming").insertAdjacentHTML("afterbegin",'<p class="amsg err friend-error">' + esc(details || "Supabase вернул неизвестную ошибку.") + '</p>');
+      return;
+    }
+    await loadFriends();
+  }
+}
+function profileMsg(message, error){
+  const p = $("profileSettings").classList.contains("hidden") ? $("profileMsg") : $("profileSettingsMsg");
+  p.textContent = message; p.className = "amsg" + (error ? " err" : "");
+}
+function syncProfileSave(){
+  const button=$("profileSave");
+  if(!button)return;
+  const changed=$("profileBio").value !== (readProfile().bio || "") || profileAvatarPending;
+  button.classList.toggle("hidden",!changed);
+  if(changed){button.textContent="Сохранить";if(profileSavedTimer)clearTimeout(profileSavedTimer);$("profileMsg").textContent="";}
+}
+function resizeProfileBio(){
+  const field=$("profileBio");field.style.height="auto";
+  field.style.height=Math.max(42,field.scrollHeight)+"px";
+}
+function fitProfileNickname(){
+  const line=$("profileDisplayNick").parentElement,name=$("profileDisplayNick");
+  if(!line||!name)return;
+  name.style.fontSize="";
+  const base=parseFloat(getComputedStyle(name).fontSize)||24;
+  const controls=[...line.children].filter(el=>el!==name&&getComputedStyle(el).display!=="none");
+  const gap=parseFloat(getComputedStyle(line).gap)||0;
+  const available=line.clientWidth-controls.reduce((sum,el)=>sum+el.getBoundingClientRect().width,0)-gap*Math.max(0,controls.length);
+  let size=base;
+  name.style.fontSize=size+"px";
+  while(name.scrollWidth>available&&size>12){size-=.5;name.style.fontSize=size+"px";}
+}
 function setMsg(t, err){ const m = $("amsg"); if (m) { m.textContent = t; m.className = "amsg" + (err ? " err" : ""); } }
 function authText(e){
   const m = String((e && e.message) || e || "");
+  if (e && e.nicknameTaken || nicknameTakenError(e)) return "Этот никнейм уже занят";
   if (/invalid login/i.test(m)) return "Неверная почта или пароль.";
   if (/already registered|already been registered/i.test(m)) return "Эта почта уже зарегистрирована, нажмите «Войти».";
   if (/not confirmed/i.test(m)) return "Подтвердите почту по ссылке из письма.";
@@ -268,6 +648,7 @@ function renderAcc(){
   const me = $("me");
   me.textContent = user ? authorName() : (sb && accState === "connecting" ? "Подключение…" : "Войти");
   me.className = "me" + (user ? " on" : "");
+  updateProfileNav();
   let h;
   if (!sb) {
     h = '<b>Аккаунты не настроены</b><p>Заполните файл config.js: вставьте Project URL и Publishable key из Supabase.</p>';
@@ -279,12 +660,12 @@ function renderAcc(){
       '<div class="arow"><button class="b pri" id="anew">Сохранить пароль</button></div><p class="amsg" id="amsg"></p>';
   } else if (user) {
     h = '<b>' + esc(authorName()) + '</b><p>Вы вошли. Модули и слова хранятся в вашем аккаунте и доступны на всех устройствах.</p>' +
-      '<label class="nicklabel" for="anickEdit">Никнейм</label><div class="arow"><input class="ei" id="anickEdit" type="text" value="' + escA(authorName()) + '" autocomplete="nickname" maxlength="24"><button class="b" id="saveNick">Сохранить</button></div><p class="amsg" id="nmsg"></p>' +
+      '<label class="nicklabel" for="anickEdit">Никнейм</label><div class="arow"><input class="ei" id="anickEdit" type="text" value="' + escA(authorName()) + '" autocomplete="nickname" maxlength="15"><button class="b" id="saveNick">Сохранить</button></div><p class="amsg" id="nmsg"></p>' +
       (accErr ? '<p class="amsg err">Не удалось синхронизировать: ' + esc(accErrText) + '</p>' : '') +
       '<button class="b" id="logout">Выйти</button>';
   } else {
     h = '<b>Вход или регистрация</b><p>Войдите, чтобы сохранять слова в аккаунте и делиться модулями.</p>' +
-      '<input class="ei" id="anick" type="text" placeholder="Никнейм (для регистрации)" autocomplete="nickname" maxlength="24">' +
+      '<input class="ei" id="anick" type="text" placeholder="Никнейм (для регистрации)" autocomplete="nickname" maxlength="15">' +
       '<input class="ei" id="aem" type="email" placeholder="Почта" autocomplete="email">' +
       '<div class="pwfield"><input class="ei" id="apw" type="password" placeholder="Пароль (не короче 6 символов)" autocomplete="current-password"><button class="pwtoggle" type="button" data-pass="apw" aria-label="Показать пароль" aria-pressed="false">Показать</button></div>' +
       '<div class="arow"><button class="b pri" id="alogin">Войти</button><button class="b" id="asign">Регистрация</button></div>' +
@@ -296,12 +677,16 @@ async function doAuth(kind){
   if (!sb || authBusy) return;
   const email = $("aem").value.trim(), nickname = $("anick").value.trim().replace(/\s+/g, " "), password = $("apw").value;
   if (!email || password.length < 6) { setMsg("Введите почту и пароль не короче 6 символов.", true); return; }
-  if (kind === "up" && (nickname.length < 2 || nickname.length > 24)) {
-    setMsg("Введите никнейм от 2 до 24 символов.", true); return;
+  if (kind === "up" && (nickname.length < 2 || nickname.length > 15)) {
+    setMsg("Никнейм должен содержать от 2 до 15 символов.", true); return;
   }
+  if(kind==="up"&&hasInvalidNicknameChars(nickname)){setMsg("Разрешены буквы, цифры, точка и нижнее подчёркивание; точки и подчёркивания не могут идти подряд.",true);return;}
   authBusy = true; setMsg("Подождите…");
   try {
     if (kind === "up") {
+      const availability=await sb.rpc("nickname_available",{target_nickname:nickname});
+      if(availability.error)throw availability.error;
+      if(availability.data===false)throw {nicknameTaken:true};
       const { data, error } = await sb.auth.signUp({ email, password, options: { data: { nickname }, emailRedirectTo: location.origin + location.pathname } });
       if (error) throw error;
       if (!data.session) setMsg("Проверьте почту: мы отправили письмо для подтверждения.", false);
@@ -309,7 +694,13 @@ async function doAuth(kind){
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw error;
     }
-  } catch (e) { setMsg(authText(e), true); }
+  } catch (e) {
+    let message=authText(e);
+    if(kind==="up"&&!nicknameTakenError(e)&&!e.nicknameTaken){
+      try{const check=await sb.rpc("nickname_available",{target_nickname:nickname});if(!check.error&&check.data===false)message="Этот никнейм уже занят";}catch(_){}
+    }
+    setMsg(message, true);
+  }
   authBusy = false;
 }
 function setNickMsg(t, err){
@@ -324,28 +715,16 @@ function showAuthExpired(){
 async function saveNickname(){
   if (!sb || !user) return;
   const input = $("anickEdit"), nick = input ? input.value.trim().replace(/ +/g, " ") : "";
-  if (nick.length < 2 || nick.length > 24) { setNickMsg("Введите никнейм от 2 до 24 символов.", true); return; }
+  if (nick.length < 2 || nick.length > 15) { setNickMsg("Никнейм должен содержать от 2 до 15 символов.", true); return; }
+  if(hasInvalidNicknameChars(nick)){setNickMsg("Разрешены буквы, цифры, точка и нижнее подчёркивание; точки и подчёркивания не могут идти подряд.",true);return;}
   const b = $("saveNick"); if (b) b.disabled = true;
-  setNickMsg("Сохраняем…");
   try {
-    const current = await sb.auth.getSession();
-    if (!current.data || !current.data.session) {
-      const refreshed = await sb.auth.refreshSession();
-      if (!refreshed.data || !refreshed.data.session) { showAuthExpired(); return; }
-    }
-    let result = await sb.auth.updateUser({ data: { nickname: nick } });
-    if (result.error && /auth session missing|jwt expired|refresh token/i.test(String(result.error.message || ""))) {
-      const refreshed = await sb.auth.refreshSession();
-      if (refreshed.data && refreshed.data.session) result = await sb.auth.updateUser({ data: { nickname: nick } });
-    }
-    if (result.error) {
-      if (/auth session missing|jwt expired|refresh token/i.test(String(result.error.message || ""))) showAuthExpired();
-      else { if (b) b.disabled = false; setNickMsg(authText(result.error), true); }
-      return;
-    }
-    user = result.data && result.data.user ? result.data.user : user;
-    renderAcc(); renderShare();
-    setNickMsg("Никнейм сохранён.");
+    await updateNickname(nick);
+    renderAcc(); renderShare(); updateProfileNav();
+    $("profileDisplayNick").textContent=authorName();
+    $("profileNick").value=authorName();
+    fitProfileNickname();
+    setNickMsg("",false);
   } catch (e) {
     if (b) b.disabled = false;
     setNickMsg(authText(e), true);
@@ -366,6 +745,7 @@ async function setNewPassword(){
   if (!synced) loadAccount();
 }
 async function logout(){
+  stopPresence();
   await sb.auth.signOut();
   mods = seed(); cur = null; synced = false; dirty = false; clearTimeout(saveT);
   try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (e) {}
@@ -391,17 +771,19 @@ async function loadAccount(){
 async function onSession(event, session){
   if (event === "PASSWORD_RECOVERY") {
     user = session ? session.user : null; accState = "recovery";
+    if(user)startPresence(user.id);else stopPresence();
     $("acc").classList.remove("hidden"); renderAcc(); return;
   }
   const u = session ? session.user : null;
   if (u && (!user || user.id !== u.id)) {
-    user = u; if (accState !== "recovery") accState = "in";
+    user = u; if (accState !== "recovery") accState = "in"; startPresence(user.id);
     renderAcc(); renderShare(); await loadAccount();
   } else if (!u) {
+    stopPresence();
     user = null; accState = "out"; synced = false; mineRows = []; others = [];
     renderAcc(); renderOthers(); renderShare();
   } else {
-    user = u; if (accState !== "recovery") accState = "in";
+    user = u; if (accState !== "recovery") accState = "in"; startPresence(user.id);
   }
 }
 function initAuth(){
@@ -421,6 +803,192 @@ async function flush(){
   saving = false; if (was !== accErr) renderAcc();
 }
 $("me").onclick = () => $("acc").classList.toggle("hidden");
+$("profileLink").onclick = () => { $("acc").classList.add("hidden"); location.hash = "profile"; route(); };
+$("profileBack").onclick = () => { location.hash = "lib"; route(); };
+$("tabProfile").onclick = () => showFriendsTab(false);
+$("tabFriends").onclick = () => showFriendsTab(true);
+$("tabModules").onclick = () => {
+  showProfileTab("modules");
+  const own=mods.filter(m=>!m.addedFromFriend);
+  $("profileModulesList").innerHTML=own.length?'<h2>Мои модули</h2>'+own.map(m=>'<div class="omod"><span><b>'+esc(m.name)+'</b><small>'+m.cards.length+' '+plural(m.cards.length)+'</small></span><button class="b sm" data-rename-module="'+escA(m.id)+'">Переименовать</button></div>').join(""):'<p class="sub">У вас пока нет модулей.</p>';
+};
+$("tabSettings").onclick = () => showProfileTab("settings");
+let friendSearchTimer = null, friendSearchSeq = 0;
+$("friendSearch").addEventListener("input", () => {
+  clearTimeout(friendSearchTimer);
+  const seq = ++friendSearchSeq;
+  const term = $("friendSearch").value.trim();
+  if (term.length < 2) {
+    $("friendResults").innerHTML = '<p class="sub">Введите хотя бы 2 символа.</p>';
+    return;
+  }
+  $("friendResults").innerHTML = '<p class="sub">Ищем…</p>';
+  friendSearchTimer = setTimeout(() => {
+    if (seq === friendSearchSeq) searchFriends();
+  }, 300);
+});
+document.addEventListener("click", e => {
+  const rename=e.target.closest("[data-rename-module]");
+  if(rename){
+    const module=mods.find(m=>m.id===rename.dataset.renameModule&&!m.addedFromFriend);
+    if(module){
+      const name=prompt("Введите новое название модуля:",module.name);
+      if(name!==null){const clean=name.trim();if(clean){module.name=clean;save();renderLib();$("tabModules").click();}else alert("Название не может быть пустым.");}
+    }
+    return;
+  }
+  const b = e.target.closest("[data-friend]");
+  if (b) friendAction(b.dataset.friend,b.dataset.id);
+  const open = e.target.closest("[data-open-friend]");
+  if(open){ location.hash="friend-"+open.dataset.openFriend; route(); }
+  const imp=e.target.closest("[data-import-friend]");
+  if(imp) importFriendModule(imp.closest("#profileModules")?"profileModules":"omods",+imp.dataset.importFriend,imp);
+});
+$("avatarPick").onclick = () => $("avatarDialog").classList.remove("hidden");
+$("avatarDialogClose").onclick = closeAvatarDialog;
+$("avatarDialog").onclick = e => { if(e.target === $("avatarDialog")) closeAvatarDialog(); };
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeAvatarDialog();});
+$("avatarUpload").onclick = () => { $("avatarDialog").classList.add("hidden"); $("avatarFile").click(); };
+$("avatarCamera").onclick = startAvatarCamera;
+$("avatarCameraCancel").onclick = () => { stopAvatarCamera(); $("avatarCameraPanel").classList.add("hidden"); $("avatarMenu").classList.remove("hidden"); $("avatarCameraFallback").classList.add("hidden"); };
+$("avatarCameraFallback").onclick = () => { closeAvatarDialog();$("avatarCameraFile").click(); };
+$("avatarTake").onclick = () => {
+  const video=$("avatarVideo");
+  if(!video.videoWidth)return;
+  const canvas=document.createElement("canvas");canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+  canvas.getContext("2d").drawImage(video,0,0);
+  const dataUrl=canvas.toDataURL("image/jpeg",.88);
+  closeAvatarDialog();saveAvatarData(dataUrl);
+};
+$("avatarDelete").onclick = () => {
+  const data=readProfile();
+  if(!data.avatar&&!profileAvatarPending){ closeAvatarDialog(); return; }
+  closeAvatarDialog();pendingAvatar=null;profileAvatarPending=true;
+  $("profileAvatar").src="";$("profileAvatar").classList.add("hidden");$("profilePresence").classList.add("hidden");syncProfileSave();
+};
+function stopAvatarCamera(){
+  if(avatarStream){avatarStream.getTracks().forEach(track=>track.stop());avatarStream=null;}
+  $("avatarVideo").srcObject=null;
+}
+function closeAvatarDialog(){
+  stopAvatarCamera();$("avatarDialog").classList.add("hidden");
+  $("avatarCameraPanel").classList.add("hidden");$("avatarMenu").classList.remove("hidden");
+  $("avatarCameraFallback").classList.add("hidden");$("avatarCameraCancel").textContent="Назад";
+}
+async function startAvatarCamera(){
+  $("avatarMenu").classList.add("hidden");$("avatarCameraPanel").classList.remove("hidden");
+  $("avatarCameraFallback").classList.add("hidden");$("avatarCameraCancel").textContent="Назад";
+  $("avatarCameraError").textContent="Подключаем камеру…";
+  if(!navigator.mediaDevices?.getUserMedia){closeAvatarDialog();$("avatarCameraFile").click();return;}
+  try{
+    avatarStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:false});
+    if($("avatarDialog").classList.contains("hidden")){stopAvatarCamera();return;}
+    $("avatarVideo").srcObject=avatarStream;
+    await $("avatarVideo").play();
+    $("avatarCameraError").textContent="";
+  }catch(_){
+    $("avatarCameraError").textContent="Не удалось открыть веб-камеру. Разрешите доступ или выберите фото.";
+    $("avatarCameraFallback").classList.remove("hidden");
+  }
+}
+function loadAvatar(input){
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file || !user) return;
+  if (!file.type.startsWith("image/")) { profileMsg("Выберите файл изображения.", true); return; }
+  const reader = new FileReader();
+  reader.onload = () => saveAvatarData(reader.result);
+  reader.readAsDataURL(file);
+}
+function saveAvatarData(source){
+  const img=new Image();
+  img.onload=()=>{
+    const side=Math.min(img.width,img.height),sx=(img.width-side)/2,sy=(img.height-side)/2;
+    const canvas=document.createElement("canvas");canvas.width=320;canvas.height=320;
+    canvas.getContext("2d").drawImage(img,sx,sy,side,side,0,0,320,320);
+    pendingAvatar=canvas.toDataURL("image/jpeg",.82);profileAvatarPending=true;
+    $("profileAvatar").src=pendingAvatar;$("profileAvatar").classList.remove("hidden");$("profilePresence").classList.remove("hidden");syncProfileSave();
+  };
+  img.src=source;
+}
+[$("avatarFile"),$("avatarCameraFile")].forEach(input=>input.onchange=()=>loadAvatar(input));
+$("profileSave").onclick = () => {
+  if (!user) return;
+  const bio = $("profileBio").value.trim();
+  if (bio.length > 116) { profileMsg("Описание должно содержать не более 116 символов.", true); return; }
+  try {
+    const old = readProfile(); old.bio = bio;
+    if(profileAvatarPending){if(pendingAvatar)old.avatar=pendingAvatar;else delete old.avatar;}
+    localStorage.setItem(profileKey(), JSON.stringify(old));
+    profileAvatarPending=false;pendingAvatar=undefined;updateProfileNav();
+    const button=$("profileSave");button.textContent="Сохранено";$("profileMsg").textContent="";
+    button.classList.remove("hidden");
+    if(profileSavedTimer)clearTimeout(profileSavedTimer);
+    profileSavedTimer=setTimeout(()=>{button.classList.add("hidden");$("profileMsg").textContent="";button.textContent="Сохранить";},3000);
+  } catch (_) { profileMsg("Не удалось сохранить описание.", true); }
+};
+$("profileBio").addEventListener("input",()=>{resizeProfileBio();syncProfileSave();});
+window.addEventListener("resize",()=>{resizeProfileBio();fitProfileNickname();});
+$("profileNickSave").onclick = async () => {
+  if (!user) return;
+  const nick = $("profileNick").value.trim().replace(/\s+/g, " ");
+  if (nick.length < 2 || nick.length > 15) { profileMsg("Никнейм должен содержать от 2 до 15 символов.", true); return; }
+  if(hasInvalidNicknameChars(nick)){profileMsg("Разрешены буквы, цифры, точка и нижнее подчёркивание; точки и подчёркивания не могут идти подряд.",true);return;}
+  $("profileNickSave").disabled = true;
+  try {
+    await updateNickname(nick);
+    renderProfile(); showProfileTab("settings"); renderAcc(); updateProfileNav(); renderShare(); profileMsg("",false);
+  } catch (error) { profileMsg(error.invalidNickname?"Никнейм должен содержать 2–15 символов и не иметь знаков подряд.":nicknameTakenError(error)||error.nicknameTaken?"Этот никнейм уже занят":"Не удалось сохранить профиль. Проверьте соединение и сессию.", true); }
+  $("profileNickSave").disabled = false;
+};
+  $("profileNick").addEventListener("input",e=>cleanNicknameInput(e.target));
+$("acc").addEventListener("input",e=>{
+  if(e.target.id==="anick"||e.target.id==="anickEdit")cleanNicknameInput(e.target);
+});
+function openEmojiPicker(e){
+  e.stopPropagation();
+  const picker=$("emojiPicker");
+  picker.classList.toggle("hidden");
+  if(!picker.classList.contains("hidden")){$("emojiInput").value=readProfile().badge||"";$("emojiInput").focus();}
+}
+$("emojiTrigger").onclick=openEmojiPicker;
+$("profileBadge").onclick=openEmojiPicker;
+function applyProfileEmoji(value){
+  const text=value.trim();
+  const isEmoji=value=>/[\p{Extended_Pictographic}\p{Regional_Indicator}\u20E3]/u.test(value);
+  if(!isEmoji(text)){ $("emojiInput").focus(); return; }
+  const segmenter=window.Intl&&Intl.Segmenter?new Intl.Segmenter(undefined,{granularity:"grapheme"}):null;
+  const emoji=segmenter?[...segmenter.segment(text)].map(part=>part.segment).find(isEmoji):Array.from(text).find(isEmoji);
+  if(!emoji){$("emojiInput").focus();return;}
+  $("emojiInput").value=emoji;
+  const data=readProfile();
+  try{
+    data.badge=emoji;
+    localStorage.setItem(profileKey(),JSON.stringify(data));
+    $("profileBadge").textContent=emoji;
+    $("profileBadge").classList.remove("hidden");
+    $("emojiTrigger").classList.add("hidden");
+    updateProfileNav();
+    fitProfileNickname();
+    $("emojiPicker").classList.add("hidden");
+  }catch(_){profileMsg("Не удалось сохранить смайлик.",true);}
+}
+$("emojiApply").onclick=()=>applyProfileEmoji($("emojiInput").value);
+$("emojiInput").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();applyProfileEmoji(e.currentTarget.value);}});
+ $("emojiInput").addEventListener("input",()=>{
+  const value=$("emojiInput").value, segmenter=window.Intl&&Intl.Segmenter?new Intl.Segmenter(undefined,{granularity:"grapheme"}):null;
+  const isEmoji=part=>/[\p{Extended_Pictographic}\p{Regional_Indicator}\u20E3]/u.test(part);
+  const one=segmenter?[...segmenter.segment(value)].map(part=>part.segment).find(isEmoji):Array.from(value).find(isEmoji);
+  if(one&&value!==one)$("emojiInput").value=one;
+});
+$("emojiRemove").onclick=()=>{
+  const data=readProfile();delete data.badge;
+  try{localStorage.setItem(profileKey(),JSON.stringify(data));$("profileBadge").textContent="";$("profileBadge").classList.add("hidden");$("emojiTrigger").classList.remove("hidden");updateProfileNav();fitProfileNickname();$("emojiPicker").classList.add("hidden");}
+  catch(_){profileMsg("Не удалось убрать смайлик.",true);}
+};
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".emoji-picker-wrap"))$("emojiPicker").classList.add("hidden");
+});
 $("acc").onclick = e => {
   const toggle = e.target.closest("[data-pass]");
   if (toggle) {
@@ -699,29 +1267,26 @@ function renderOthers(){
   const sec = $("oth");
   if (!user) { sec.classList.add("hidden"); return; }
   sec.classList.remove("hidden");
-  const own = mineRows.map(r => {
-    const n = (r.cards || []).length, m = mods.find(x => x.sharedId === r.id);
-    return '<div class="omod"><span><b>' + esc(r.name) + '</b><small>Ваш модуль, ' + n + ' ' + plural(n) + '</small></span>' +
-      (m ? '<button class="b" data-own="' + escA(m.id) + '">Открыть</button>' : '') + '</div>';
-  });
-  const oth = others.map((o, i) => {
-    const n = (o.cards || []).length;
-    return '<div class="omod"><span><b>' + esc(o.name) + '</b><small>от ' + esc(o.author || "участника") + ', ' + n + ' ' + plural(n) + '</small></span>' +
-      '<button class="b pri" data-i="' + i + '">Добавить</button></div>';
-  });
-  $("omods").innerHTML = own.concat(oth).join("") || '<div class="empty">Пока никто не поделился модулями.</div>';
+  loadFriendFeed();
 }
-$("omods").onclick = e => {
-  const b = e.target.closest("button"); if (!b) return;
-  if (b.dataset.own) { location.hash = "m-" + b.dataset.own; return; }
-  const o = others[+b.dataset.i]; if (!o) return;
-  mods.push({id: uid(), name: o.name, cards: (o.cards || []).map(c => {
-    const cc = {w: String(c.w), t: String(c.t)};
-    if (c.wi) cc.wi = String(c.wi); if (c.ti) cc.ti = String(c.ti);
-    return cc;
-  })});
-  save(); renderLib(); b.textContent = "Добавлено"; b.disabled = true;
-};
+async function loadFriendFeed(){
+  if(!user||!sb)return;
+  const box=$("omods"); box.innerHTML='<p class="sub">Загружаем модули друзей…</p>';
+  const {data,error}=await sb.from("friend_requests").select("sender_id,receiver_id").eq("status","accepted").or("sender_id.eq."+user.id+",receiver_id.eq."+user.id);
+  if(error){box.innerHTML='<p class="amsg err">Не удалось загрузить модули друзей.</p>';return}
+  const ids=data.map(r=>r.sender_id===user.id?r.receiver_id:r.sender_id);
+  const all=[];
+  for(const id of ids){
+    const [p,m]=await Promise.all([
+      sb.from("profiles").select("nickname").eq("user_id",id).maybeSingle(),
+      sb.rpc("get_friend_modules",{target_user:id})
+    ]);
+    if(!m.error)(m.data||[]).forEach(x=>all.push({...x,friendId:id,friendName:p.data?.nickname||"Друг"}));
+  }
+  others=all;
+  renderFriendModules(all.map(x=>({module_name:x.module_name,cards:x.cards,friendName:x.friendName})).map(x=>({...x,module_name:x.friendName+" · "+x.module_name})),"omods");
+}
+$("omods").onclick = e => { const b=e.target.closest("[data-import-friend]"); if(b)importFriendModule("omods",+b.dataset.importFriend,b); };
 function renderShare(){
   const box = $("shr"); if (!cur) return;
   if (!user) { box.innerHTML = '<p>Войдите в аккаунт, чтобы делиться модулями.</p>'; return; }
@@ -773,23 +1338,23 @@ const PALS = [
 const curPal = () => document.documentElement.dataset.theme || (mq.matches ? "dark" : "classic");
 const PALI = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".9" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r=".9" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r=".9" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r=".9" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.7-.7 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7H17c3 0 5.5-2.5 5.5-5.5C22.5 6 18 2 12 2z"/></svg>';
 function renderPal(){
-  $("theme").innerHTML = PALI;
-  $("theme").setAttribute("aria-label", "Выбрать тему");
+  const themeButton=$("theme");
+  if(themeButton){themeButton.innerHTML=PALI;themeButton.setAttribute("aria-label","Выбрать тему");}
   const on = curPal();
-  $("pal").innerHTML = '<div class="palt">Тема сайта</div>' + PALS.map(p =>
+  const choices = $("themeChoices");
+  if (!choices) return;
+  choices.innerHTML = PALS.map(p =>
     '<button class="palopt' + (p.id === on ? " on" : "") + '" data-pal="' + p.id + '">' +
     '<span class="pdots">' + p.d.map(c => '<i style="background:' + c + '"></i>').join("") + '</span><span class="pname">' + p.name + '</span></button>').join("");
 }
-$("theme").onclick = e => { e.stopPropagation(); renderPal(); $("pal").classList.toggle("hidden"); };
-$("pal").onclick = e => {
+if($("theme")) $("theme").onclick = e => { e.stopPropagation(); renderPal(); $("themeChoices").classList.toggle("hidden"); };
+$("themeChoices").onclick = e => {
   const b = e.target.closest(".palopt"); if (!b) return;
   document.documentElement.dataset.theme = b.dataset.pal;
   try { localStorage.setItem(TKEY, b.dataset.pal); } catch (err) {}
   renderPal();
 };
-document.addEventListener("click", e => { if (!e.target.closest(".tr")) $("pal").classList.add("hidden"); });
-document.addEventListener("keydown", e => { if (e.key === "Escape") $("pal").classList.add("hidden"); });
-try { mq.addEventListener("change", () => { if (!$("pal").classList.contains("hidden")) renderPal(); }); } catch (e) {}
+try { mq.addEventListener("change", () => { if (!localStorage.getItem(TKEY)) renderPal(); }); } catch (e) {}
 renderPal();
 
 route();

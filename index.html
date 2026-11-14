@@ -12,15 +12,60 @@
 <body>
 <main>
   <section id="lib">
-    <div class="top"><h1>Библиотека</h1><div class="tr"><button class="me ic" id="theme" aria-label="Выбрать тему"></button><button class="me" id="me">Войти</button><div class="pal hidden" id="pal"></div></div></div>
+    <div class="top"><h1>Библиотека</h1><div class="tr"><button class="profile-link hidden" id="profileLink" type="button"><span class="status-avatar"><img id="navAvatar" alt=""><i class="presence-dot status-offline hidden" id="navPresence" title="Не в сети"></i></span><span id="navNick"></span></button><button class="me" id="me">Войти</button></div></div>
     <p class="sub">Выберите модуль или создайте новый</p>
     <div class="acc hidden" id="acc"></div>
-    <div class="mods" id="mods"></div>
-    <section id="oth" class="hidden"><h2>Общие модули</h2><div class="mods" id="omods"></div></section>
     <h2>Новый модуль</h2>
     <div class="add one">
       <input id="mn" placeholder="Название, например «Еда»" autocomplete="off">
       <button class="b pri" id="mAdd">Создать</button>
+    </div>
+    <div class="mods" id="mods"></div>
+    <section id="oth" class="hidden"><h2>Модули друзей</h2><div class="mods" id="omods"></div></section>
+  </section>
+
+  <section id="profile" class="hidden">
+    <button class="back" id="profileBack">← Библиотека</button>
+    <h1 id="profileTitle">Профиль</h1>
+    <div class="profile-tabs"><button class="b pri" id="tabProfile">Профиль</button><button class="b" id="tabFriends">Друзья</button><button class="b" id="tabModules">Модули</button><button class="b" id="tabSettings">Настройки</button></div>
+    <div class="profile-card" id="profileCard">
+      <div class="profile-layout">
+        <button class="avatar-pick status-avatar" id="avatarPick" type="button" aria-label="Изменить фото профиля">
+          <img id="profileAvatar" alt="">
+          <i class="presence-dot status-offline hidden" id="profilePresence" title="Не в сети"></i>
+        </button>
+        <div class="profile-details">
+          <div class="profile-nickline">
+            <h2 id="profileDisplayNick"></h2>
+            <button class="profile-badge hidden" id="profileBadge" type="button" aria-label="Сменить смайлик"></button>
+            <div class="emoji-picker-wrap">
+              <button class="emoji-trigger" id="emojiTrigger" type="button" aria-label="Добавить смайлик рядом с никнеймом">☺</button>
+              <div class="emoji-picker hidden" id="emojiPicker" role="group" aria-label="Введите смайлик">
+                <label for="emojiInput">Введите один смайлик с клавиатуры</label>
+                <input id="emojiInput" type="text" maxlength="32" placeholder="🙂" autocomplete="off">
+                <div class="emoji-picker-actions"><button type="button" class="b pri" id="emojiApply">Добавить</button><button type="button" class="b" id="emojiRemove">Убрать</button></div>
+              </div>
+            </div>
+          </div>
+          <label class="nicklabel" for="profileBio">О себе</label>
+          <textarea class="profile-bio" id="profileBio" maxlength="116" placeholder="Добавьте описание..." rows="1"></textarea>
+        </div>
+      </div>
+      <div class="profile-footer"><p class="amsg" id="profileMsg"></p><button class="b pri hidden" id="profileSave">Сохранить</button></div>
+    </div>
+    <div class="profile-card hidden" id="friendsPanel">
+      <h2>Найти друзей</h2>
+      <div class="arow"><input class="ei" id="friendSearch" placeholder="Введите никнейм" autocomplete="off"></div>
+      <div id="friendResults"></div>
+      <h2>Входящие запросы</h2><div id="friendIncoming"></div>
+      <h2>Мои друзья</h2><div id="friendList"></div>
+    </div>
+    <div class="profile-card hidden" id="profileModules"><div id="profileModulesList"></div></div>
+    <div class="profile-card hidden" id="profileSettings">
+      <h2>Никнейм</h2>
+      <div class="arow"><input class="ei" id="profileNick" maxlength="15" autocomplete="nickname"><button class="b pri" id="profileNickSave">Сохранить</button></div>
+      <p class="amsg" id="profileSettingsMsg"></p>
+      <h2>Тема оформления</h2><div class="theme-choices" id="themeChoices"></div>
     </div>
   </section>
 
@@ -36,6 +81,7 @@
       <input id="t" placeholder="Перевод" autocomplete="off">
       <button class="b pri" id="addBtn">Добавить карточку</button>
     </div>
+    <div class="ioactions"><button class="b" id="importBtn">Импортировать</button><button class="b" id="exportBtn">Экспортировать</button></div>
     <h2 id="lh">Все слова</h2>
     <ul id="list"></ul>
     <div class="shr" id="shr"></div>
@@ -63,6 +109,31 @@
     <div class="bar"><i id="pbar"></i></div><span class="ptime" id="ptime">0:00</span><span class="count" id="pleft"></span></div>
   <div class="pbody" id="pbody"></div>
 </div>
+
+<div class="iom hidden" id="iom" role="dialog" aria-modal="true" aria-labelledby="ioTitle">
+  <div class="io-card">
+    <div class="io-head"><h2 id="ioTitle"></h2><button class="x" id="ioClose" aria-label="Закрыть">×</button></div>
+    <div id="ioContent"></div>
+  </div>
+</div>
+<div class="avatar-dialog hidden" id="avatarDialog" role="dialog" aria-modal="true" aria-label="Фото профиля">
+  <div class="avatar-dialog-card">
+    <button class="x avatar-close" id="avatarDialogClose" type="button" aria-label="Закрыть">×</button>
+    <div id="avatarMenu">
+      <button class="b" id="avatarUpload" type="button">Загрузить фото</button>
+      <button class="b" id="avatarCamera" type="button">Сделать фото</button>
+      <button class="b danger" id="avatarDelete" type="button">Удалить фото</button>
+    </div>
+    <div id="avatarCameraPanel" class="hidden">
+      <video id="avatarVideo" autoplay playsinline></video>
+      <p id="avatarCameraError" class="amsg"></p>
+      <button class="b hidden" id="avatarCameraFallback" type="button">Выбрать фото</button>
+      <div class="avatar-camera-actions"><button class="b pri" id="avatarTake" type="button">Сделать снимок</button><button class="b" id="avatarCameraCancel" type="button">Назад</button></div>
+    </div>
+  </div>
+</div>
+<input id="avatarFile" type="file" accept="image/*" hidden>
+<input id="avatarCameraFile" type="file" accept="image/*" capture="user" hidden>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="script.js"></script>
