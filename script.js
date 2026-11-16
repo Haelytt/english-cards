@@ -24,8 +24,9 @@ const save = () => {
 const plural = n => { const a = n % 10, b = n % 100; return (a === 1 && b !== 11) ? "слово" : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? "слова" : "слов"; };
 
 let cur = null, idx = 0, sure = false;
-let viewedFriend = null;
-let profileAvatarPending = false, pendingAvatar = undefined, profileSavedTimer = null, avatarStream = null;
+let viewedFriend = null, viewedProfileData = null;
+let profileAvatarPending = false, pendingAvatar = undefined, pendingProfileBadge = undefined, profileSavedTimer = null, avatarStream = null;
+let profileContentChannel=null,profileContentUserId=null,profileLoadPromise=null,profileLoadUserId=null;
 
 function renderLib(){
   const render = list => list.map(m => {
@@ -35,8 +36,23 @@ function renderLib(){
       (pv ? esc(pv) + (n > 3 ? "…" : "") : "Пока пусто") + '</small></span><i>' + n + '</i></button>';
   }).join("");
   const own = mods.filter(m => !m.addedFromFriend), added = mods.filter(m => m.addedFromFriend);
-  $("mods").innerHTML = (own.length ? '<h2 class="own-title">Мои модули</h2>' + render(own) : '<div class="empty">Модулей пока нет. Создайте первый выше.</div>') +
+  $("mods").innerHTML = (own.length ? '<h2 class="own-title">Мои модули</h2>' + render(own) : "") +
     (added.length ? '<h2 class="added-title">Добавленные модули</h2>' + render(added) : "");
+}
+function dedupeImportedModules(){
+  const seen=new Set();
+  const before=mods.length;
+  mods=mods.filter(m=>{
+    if(!m.addedFromFriend)return true;
+    const title=String(m.name||"").replace(/^[^·]+\s*·\s*/,"").trim().toLocaleLowerCase();
+    const cards=JSON.stringify(m.cards||[]);
+    const key=m.addedFromUser&&m.addedFromModule
+      ?m.addedFromUser+":"+m.addedFromModule
+      :title+"\n"+cards;
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  });
+  return mods.length!==before;
 }
 $("mods").onclick = e => { const b = e.target.closest(".mod"); if (b) location.hash = "m-" + b.dataset.id; };
 function addMod(){
@@ -77,7 +93,16 @@ function renderList(){
       '<button class="ico" data-act="edit" data-i="' + i + '" aria-label="Изменить ' + escA(c.w) + '">' + PEN + '</button>' +
       '<button data-act="del" data-i="' + i + '" aria-label="Удалить ' + escA(c.w) + '">×</button></li>').join("");
 }
-function renderStudy(){ renderCard(); renderList(); }
+function renderStudy(){
+  renderCard();renderList();
+  const readOnly=!!cur.addedFromFriend;
+  $("study").classList.toggle("readonly-module",readOnly);
+  $("addWordHeading").classList.toggle("hidden",readOnly);
+  $("wordEditor").classList.toggle("hidden",readOnly);
+  $("importBtn").classList.toggle("hidden",readOnly);
+  $("del").textContent=readOnly?"Убрать из библиотеки":"Удалить модуль";
+  $("del").classList.remove("sure");sure=false;
+}
 
 let q = [], total = 0, rep = 0, drag = null, busy = false;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -150,6 +175,7 @@ $("ok").onclick = () => decide(true);
 $("no").onclick = () => decide(false);
 $("x").onclick = closeStudy;
 function add(){
+  if(!cur||cur.addedFromFriend)return;
   const w = $("w").value.trim(), t = $("t").value.trim();
   if (!w || !t) { (w ? $("t") : $("w")).focus(); return; }
   cur.cards.push({w, t}); idx = cur.cards.length - 1; save();
@@ -251,6 +277,7 @@ async function ioCopy(){
   }
 }
 function importCards(){
+  if(!cur||cur.addedFromFriend)return;
   const cards = parseImportText();
   if (!cards.length) { $("ioMsg").textContent = "Не найдено ни одной пары. Проверьте разделители."; return; }
   cur.cards.push(...cards);
@@ -263,6 +290,7 @@ $("iom").onclick = e => { if (e.target.id === "iom") closeIO(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("iom").classList.contains("hidden")) closeIO(); });
 
 function saveEdit(){
+  if(!cur||cur.addedFromFriend)return;
   const w = $("ew").value.trim(), t = $("et").value.trim();
   if (!w || !t) { (w ? $("et") : $("ew")).focus(); return; }
   const old = cur.cards[editIdx], nw = {w, t};
@@ -270,6 +298,7 @@ function saveEdit(){
   cur.cards[editIdx] = nw; editIdx = -1; save(); renderStudy();
 }
 $("list").onclick = e => {
+  if(!cur||cur.addedFromFriend)return;
   const rm = e.target.closest("[data-rm]");
   if (rm) { if (editIdx > -1 && cur.cards[editIdx]) { delete cur.cards[editIdx][rm.dataset.rm]; save(); renderList(); } return; }
   const b = e.target.closest("button"); if (!b) return;
@@ -294,9 +323,9 @@ document.body.appendChild(fileIn);
 fileIn.addEventListener("change", () => {
   const f = fileIn.files && fileIn.files[0];
   fileIn.value = "";
-  if (!f || !picField || editIdx < 0 || !cur.cards[editIdx]) { picField = null; return; }
+  if (!f || !cur || cur.addedFromFriend || !picField || editIdx < 0 || !cur.cards[editIdx]) { picField = null; return; }
   const fld = picField; picField = null;
-  compressImg(f, data => { if (editIdx > -1 && cur.cards[editIdx]) { cur.cards[editIdx][fld] = data; save(); renderList(); } });
+  compressImg(f, data => { if (cur&&!cur.addedFromFriend&&editIdx > -1 && cur.cards[editIdx]) { cur.cards[editIdx][fld] = data; save(); renderList(); } });
 });
 function compressImg(file, cb){
   const url = URL.createObjectURL(file), im = new Image();
@@ -316,7 +345,7 @@ function compressImg(file, cb){
 
 $("back").onclick = () => { location.hash = "lib"; };
 $("del").onclick = () => {
-  if (!sure) { sure = true; $("del").textContent = "Нажмите ещё раз, чтобы удалить модуль"; $("del").classList.add("sure"); return; }
+  if (!sure) { sure = true; $("del").textContent = cur.addedFromFriend ? "Нажмите ещё раз, чтобы убрать модуль" : "Нажмите ещё раз, чтобы удалить модуль"; $("del").classList.add("sure"); return; }
   if (sb && user && cur.sharedId) sb.from("shared_modules").delete().eq("id", cur.sharedId).then(() => loadShared());
   mods = mods.filter(m => m !== cur); save(); location.hash = "lib";
 };
@@ -333,11 +362,12 @@ function route(){
   const friendRoute = /^friend-([0-9a-f-]{36})$/i.exec(h);
   if ((h === "profile" || friendRoute) && user) {
     viewedFriend = friendRoute ? friendRoute[1] : null;
+    viewedProfileData = null;
     cur = null; endStudy(); endLearn(); endPick();
     $("lib").classList.add("hidden"); $("study").classList.add("hidden"); $("profile").classList.remove("hidden");
-    renderProfile(); if (viewedFriend) loadFriendProfile(); else loadFriends(); window.scrollTo(0, 0); return;
+    renderProfile(); if (viewedFriend) loadFriendProfile(); else { loadFriends(); loadProfileContent(); } window.scrollTo(0, 0); return;
   }
-  viewedFriend = null;
+  viewedFriend = null;viewedProfileData=null;
   $("profile").classList.add("hidden");
   const m = mm ? mods.find(x => x.id === mm[2]) : null;
   if (!m) {
@@ -363,6 +393,7 @@ const CFG = window.APP_CONFIG || {};
 let sb = null, user = null, accState = "connecting", accErr = false, accErrText = "", authBusy = false;
 let saveT = null, saving = false, dirty = false, synced = false;
 let presenceChannel=null,presenceUserId=null,presenceIdleTimer=null,presenceActive=true;
+let libraryChannel=null,libraryChannelUserId=null;
 const presenceStatuses=new Map();
 try {
   if (window.supabase && /^https:\/\//.test(CFG.SUPABASE_URL || "") && CFG.SUPABASE_KEY && !/ВСТАВЬТЕ/.test(CFG.SUPABASE_KEY)) {
@@ -377,6 +408,75 @@ function profileKey(){ return user ? "english-profile-" + user.id : ""; }
 function readProfile(){
   if (!user) return {};
   try { return JSON.parse(localStorage.getItem(profileKey()) || "{}") || {}; } catch (_) { return {}; }
+}
+function cacheProfileContent(row){
+  if(!user||!row)return;
+  const local=readProfile();
+  local.avatar=row.avatar_data||"";
+  local.bio=row.bio||"";
+  if(pendingProfileBadge===undefined)local.badge=row.badge||"";
+  try{localStorage.setItem(profileKey(),JSON.stringify(local));}catch(_){}
+}
+function paintProfileContent(data=readProfile()){
+  $("profileBio").value=data.bio||"";
+  resizeProfileBio();
+  $("profileAvatar").src=data.avatar||"";
+  $("profileAvatar").classList.toggle("hidden",!data.avatar);
+  $("profilePresence").classList.toggle("hidden",!data.avatar);
+  applyPresenceDot($("profilePresence"),presenceStatuses.get(viewedFriend||user.id)||"offline");
+  $("profileBadge").textContent=data.badge||"";
+  $("profileBadge").classList.toggle("hidden",!data.badge);
+  $("profileBadge").disabled=!!viewedFriend;
+  $("emojiTrigger").classList.toggle("hidden",!!viewedFriend||!!data.badge);
+  $("emojiTrigger").disabled=!!viewedFriend;
+  $("avatarPick").disabled=!!viewedFriend;
+  $("profileBio").readOnly=!!viewedFriend;
+  $("profileFooter").classList.toggle("hidden",!!viewedFriend);
+  if(!viewedFriend){profileAvatarPending=false;pendingAvatar=undefined;syncProfileSave();}
+}
+async function loadProfileContent(){
+  if(!user||!sb)return;
+  if(profileLoadPromise&&profileLoadUserId===user.id)return profileLoadPromise;
+  const userId=user.id;
+  const request=(async()=>{
+    let result=await sb.from("profile_content").select("avatar_data,bio,badge").eq("user_id",userId).maybeSingle();
+    if(user?.id!==userId)return;
+    if(result.error){if(location.hash==="#profile"&&!viewedFriend)profileMsg("Не удалось загрузить профиль. Примените миграцию Supabase.",true);return;}
+    if(!result.data){
+      const local=readProfile();
+      result=await sb.from("profile_content").insert({user_id:userId,avatar_data:local.avatar||null,bio:local.bio||"",badge:local.badge||null}).select("avatar_data,bio,badge").single();
+      if(result.error?.code==="23505")result=await sb.from("profile_content").select("avatar_data,bio,badge").eq("user_id",userId).maybeSingle();
+      if(user?.id!==userId)return;
+      if(result.error||!result.data){if(location.hash==="#profile"&&!viewedFriend)profileMsg("Не удалось синхронизировать профиль. Примените миграцию Supabase.",true);return;}
+    }
+    const dirty=profileAvatarPending||pendingProfileBadge!==undefined||($("profileBio").value!==(readProfile().bio||""));
+    if(dirty)return;
+    cacheProfileContent(result.data);
+    updateProfileNav();
+    if(location.hash==="#profile"&&!viewedFriend)paintProfileContent(readProfile());
+  })();
+  profileLoadPromise=request;profileLoadUserId=userId;
+  try{await request;}finally{if(profileLoadPromise===request){profileLoadPromise=null;profileLoadUserId=null;}}
+}
+function stopProfileContentSync(){
+  const channel=profileContentChannel;profileContentChannel=null;profileContentUserId=null;
+  if(channel&&sb)sb.removeChannel(channel);
+}
+function startProfileContentSync(userId){
+  if(!sb||!userId||(profileContentChannel&&profileContentUserId===userId))return;
+  stopProfileContentSync();profileContentUserId=userId;
+  const receiveProfileContent=payload=>{
+    if(user?.id!==userId)return;
+    const dirty=profileAvatarPending||pendingProfileBadge!==undefined||($("profileBio").value!==(readProfile().bio||""));
+    if(dirty)return;
+    cacheProfileContent(payload.new);
+    updateProfileNav();
+    if(location.hash==="#profile"&&!viewedFriend)paintProfileContent(readProfile());
+  };
+  profileContentChannel=sb.channel("profile-content-"+userId)
+    .on("postgres_changes",{event:"INSERT",schema:"public",table:"profile_content",filter:"user_id=eq."+userId},receiveProfileContent)
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"profile_content",filter:"user_id=eq."+userId},receiveProfileContent)
+    .subscribe();
 }
 const invalidNickPattern = /[^\p{L}\p{M}\p{N}_.]/gu;
 function cleanNicknameInput(input){
@@ -474,64 +574,133 @@ function startPresence(userId){
       }
     });
 }
+function stopLibrarySync(){
+  const channel=libraryChannel;libraryChannel=null;libraryChannelUserId=null;
+  if(channel&&sb)sb.removeChannel(channel);
+}
+function startLibrarySync(userId){
+  if(!sb||!userId||(libraryChannel&&libraryChannelUserId===userId))return;
+  stopLibrarySync();libraryChannelUserId=userId;
+  libraryChannel=sb.channel("library-sync-"+userId)
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"libraries",filter:"user_id=eq."+userId},payload=>{
+      if(user?.id!==userId||!Array.isArray(payload.new?.data))return;
+      const incoming=payload.new.data.filter(m=>m?.addedFromFriend&&m.addedFromUser&&m.addedFromModule);
+      let changed=false;
+      mods=mods.map(module=>{
+        if(!module.addedFromFriend||!module.addedFromUser||!module.addedFromModule)return module;
+        const source=incoming.find(m=>m.addedFromUser===module.addedFromUser&&m.addedFromModule===module.addedFromModule);
+        if(!source)return module;
+        if(module.name===source.name&&JSON.stringify(module.cards)===JSON.stringify(source.cards))return module;
+        changed=true;
+        return {...module,name:source.name,cards:source.cards||[]};
+      });
+      if(!changed)return;
+      try{localStorage.setItem(KEY,JSON.stringify(mods));}catch(_){}
+      if(cur?.addedFromFriend){const current=mods.find(m=>m.id===cur.id);if(current)cur=current;}
+      if(location.hash==="#lib"||!location.hash){renderLib();}
+      else if(cur?.addedFromFriend){$("title").textContent=cur.name;renderStudy();renderShare();}
+    })
+    .subscribe();
+}
 ["pointerdown","keydown","touchstart","pointermove","wheel","scroll"].forEach(eventName=>window.addEventListener(eventName,markPresenceActive,{passive:true}));
 function renderProfile(){
   if (!user) return;
-  $("profileTitle").textContent = viewedFriend ? "Профиль друга" : "Профиль";
-  $("tabProfile").classList.toggle("hidden", !!viewedFriend);
-  $("tabFriends").classList.toggle("hidden", !!viewedFriend);
-  $("tabSettings").classList.toggle("hidden", !!viewedFriend);
-  $("tabModules").textContent = viewedFriend ? "Модули друга" : "Модули";
-  $("profileCard").classList.toggle("hidden", !!viewedFriend);
-  $("friendsPanel").classList.add("hidden");
-  $("profileModules").classList.toggle("hidden", !viewedFriend);
-  if (!viewedFriend) showProfileTab("profile");
-  const data = readProfile();
-  $("profileNick").value = authorName();
-  $("profileDisplayNick").textContent = authorName();
-  $("profileBadge").textContent = data.badge || "";
-  $("profileBadge").classList.toggle("hidden",!data.badge);
-  $("emojiTrigger").classList.toggle("hidden",!!data.badge);
-  $("profileBio").value = data.bio || "";
-  resizeProfileBio();
+  $("tabProfile").classList.remove("hidden");
+  $("tabFriends").classList.remove("hidden");
+  $("tabSettings").classList.toggle("hidden",!!viewedFriend);
+  $("profile").classList.toggle("viewing-friend",!!viewedFriend);
+  $("tabModules").textContent = "Модули";
+  $("friendControls").classList.toggle("hidden",!!viewedFriend);
+  $("friendListHeading").textContent=viewedFriend?"Друзья пользователя":"Мои друзья";
+  showProfileTab("profile");
+  const data = viewedFriend?(viewedProfileData||{}):readProfile();
+  $("profileNick").value = viewedFriend?"":authorName();
+  $("profileDisplayNick").textContent = viewedFriend?(data.nickname||"") : authorName();
+  paintProfileContent(data);
   fitProfileNickname();
-  $("profileAvatar").src = data.avatar || "";
-  $("profileAvatar").classList.toggle("hidden", !data.avatar);
-  $("profilePresence").classList.toggle("hidden", !data.avatar);
-  applyPresenceDot($("profilePresence"),presenceStatuses.get(user.id)||"offline");
-  profileAvatarPending = false; pendingAvatar = undefined;
-  syncProfileSave();
 }
 async function loadFriendProfile(){
-  const {data,error}=await sb.from("profiles").select("user_id,nickname").eq("user_id",viewedFriend).maybeSingle();
-  if(error || !data){ $("profileModulesList").innerHTML='<p class="amsg err">Не удалось открыть профиль.</p>'; return; }
-  $("profileTitle").textContent=data.nickname;
-  const res=await sb.rpc("get_friend_modules",{target_user:viewedFriend});
-  if(res.error){ $("profileModulesList").innerHTML='<p class="amsg err">Не удалось загрузить модули друга.</p>'; return; }
-  renderFriendModules(res.data||[],"profileModulesList");
+  const profileId=viewedFriend;
+  const {data,error}=await sb.rpc("get_public_profile",{target_user:profileId});
+  if(viewedFriend!==profileId)return;
+  const profile=data?.[0];
+  if(error||!profile){$("profileDisplayNick").textContent="Профиль не найден";return;}
+  viewedProfileData={nickname:profile.nickname,avatar:profile.avatar_data||"",bio:profile.bio||"",badge:profile.badge||""};
+  $("profileDisplayNick").textContent=profile.nickname;
+  paintProfileContent(viewedProfileData);fitProfileNickname();
+  await loadPublicProfileModules(profileId,profile.nickname);
+}
+async function loadPublicProfileModules(profileId=viewedFriend,nickname=viewedProfileData?.nickname||"Пользователь"){
+  if(!profileId)return;
+  const {data,error}=await sb.rpc("get_public_user_modules",{target_user:profileId});
+  if(viewedFriend!==profileId)return;
+  if(error){$("profileModulesList").innerHTML='<p class="amsg err">Не удалось загрузить модули пользователя.</p>';return;}
+  renderFriendModules((data||[]).map(m=>({...m,friendId:profileId,friendName:nickname})),"profileModulesList");
+}
+async function loadPublicProfileFriends(profileId=viewedFriend,nickname=viewedProfileData?.nickname||"Пользователь"){
+  if(!profileId)return;
+  $("friendList").innerHTML='<p class="sub">Загружаем…</p>';
+  const {data,error}=await sb.rpc("get_public_user_friends",{target_user:profileId});
+  if(viewedFriend!==profileId)return;
+  if(error){$("friendList").innerHTML='<p class="amsg err">Не удалось загрузить друзей пользователя.</p>';return;}
+  $("friendListHeading").textContent="Друзья пользователя "+nickname;
+  const peers=(data||[]).filter(friend=>friend.user_id!==user.id);
+  const peerIds=peers.map(friend=>friend.user_id);
+  const requests=peerIds.length?await sb.from("friend_requests").select("id,sender_id,receiver_id,status").or("sender_id.in.("+peerIds.join(",")+"),receiver_id.in.("+peerIds.join(",")+")"): {data:[],error:null};
+  if(viewedFriend!==profileId)return;
+  const ownLinks=requests.error?[]:(requests.data||[]);
+  const cards=(data||[]).map(friend=>{
+    if(friend.user_id===user.id)return friendCard({...friend,avatar:friend.avatar_data||""},'<span class="friend-state">Это вы — собственной персоной.</span>');
+    const link=ownLinks.find(item=>(item.sender_id===user.id&&item.receiver_id===friend.user_id)||(item.receiver_id===user.id&&item.sender_id===friend.user_id));
+    let action='<button class="b pri" data-friend="send" data-id="'+friend.user_id+'">Добавить в друзья</button>';
+    if(link?.status==="accepted")action='<span class="friend-state">Уже друзья</span>';
+    else if(link?.status==="pending")action=link.sender_id===user.id?'<span class="friend-state">Запрос отправлен</span>':'<button class="b pri" data-friend="accept" data-id="'+link.id+'">Принять запрос</button>';
+    action+='<button class="b" data-open-friend="'+friend.user_id+'">Профиль</button>';
+    return friendCard({...friend,avatar:friend.avatar_data||""},action);
+  }).join("");
+  $("friendList").innerHTML=cards||'<p class="sub">У пользователя пока нет друзей.</p>';
+  refreshPresence();
 }
 function renderFriendModules(rows,container){
-  $(container).innerHTML=rows.length?'<h2>Модули</h2>'+rows.map((m,i)=>
-    '<div class="omod"><span><b>'+esc(m.module_name)+'</b><small>'+(m.cards||[]).length+' '+plural((m.cards||[]).length)+'</small></span><button class="b pri" data-import-friend="'+i+'">Добавить к себе</button></div>'
-  ).join(""):'<p class="sub">У друзей пока нет модулей.</p>';
+  $(container).innerHTML=rows.length?rows.map((m,i)=>{
+    const added=friendModuleAlreadyAdded(m);
+    return '<div class="omod"><span><b>'+esc(m.module_name)+'</b><small>от '+esc(m.friendName||"Друг")+', '+(m.cards||[]).length+' '+plural((m.cards||[]).length)+'</small></span><button class="b '+(added?'added-module':'pri')+'" data-import-friend="'+i+'"'+(added?' disabled':'')+'>'+(added?'Добавлено':'Добавить к себе')+'</button></div>';
+  }).join(""):'<p class="sub">У друзей пока нет модулей.</p>';
   $(container).dataset.modules=JSON.stringify(rows);
+}
+function friendModuleAlreadyAdded(module){
+  const sourceUser=module.friendId||module.sourceUserId||null;
+  const sourceModule=module.module_id||module.sourceModuleId||null;
+  const title=String(module.module_name||"").replace(/^[^·]+\s*·\s*/,"").trim().toLocaleLowerCase();
+  const cards=JSON.stringify((module.cards||[]).map(c=>[String(c.w||""),String(c.t||""),String(c.wi||""),String(c.ti||"")]));
+  return mods.some(existing=>{
+    if(!existing.addedFromFriend)return false;
+    if(sourceUser&&sourceModule&&existing.addedFromUser===sourceUser&&existing.addedFromModule===sourceModule)return true;
+    const existingTitle=String(existing.name||"").replace(/^[^·]+\s*·\s*/,"").trim().toLocaleLowerCase();
+    const existingCards=JSON.stringify((existing.cards||[]).map(c=>[String(c.w||""),String(c.t||""),String(c.wi||""),String(c.ti||"")]));
+    return title===existingTitle&&cards===existingCards;
+  });
 }
 async function importFriendModule(container,index,button){
   let rows=[]; try{rows=JSON.parse($(container).dataset.modules||"[]")}catch(_){}
   const m=rows[index]; if(!m)return;
-  mods.push({id:uid(),name:m.module_name,addedFromFriend:true,cards:(m.cards||[]).map(c=>({w:String(c.w||""),t:String(c.t||""),...(c.wi?{wi:c.wi}:{}),...(c.ti?{ti:c.ti}:{})}))});
-  save(); renderLib(); button.textContent="Добавлено"; button.disabled=true;
+  const sourceUser=m.friendId||m.sourceUserId||null,sourceModule=m.module_id||m.sourceModuleId||null;
+  if(friendModuleAlreadyAdded(m)){button.textContent="Добавлено";button.className="b added-module";button.disabled=true;return;}
+  button.disabled=true;
+  mods.push({id:uid(),name:m.module_name,addedFromFriend:true,addedFromUser:sourceUser,addedFromModule:sourceModule,cards:(m.cards||[]).map(c=>({w:String(c.w||""),t:String(c.t||""),...(c.wi?{wi:c.wi}:{}),...(c.ti?{ti:c.ti}:{})}))});
+  save(); renderLib(); button.textContent="Добавлено"; button.className="b added-module"; button.disabled=true;
 }
 function showFriendsTab(showFriends){
   showProfileTab(showFriends ? "friends" : "profile");
-  if (showFriends) loadFriends();
+  if(showFriends){if(viewedFriend)loadPublicProfileFriends();else loadFriends();}
 }
 function showProfileTab(tab){
-  $("profileCard").classList.toggle("hidden",tab!=="profile"||!!viewedFriend);
-  $("friendsPanel").classList.toggle("hidden",tab!=="friends"||!!viewedFriend);
-  $("profileModules").classList.toggle("hidden",tab!=="modules"&&!viewedFriend);
-  $("profileSettings").classList.toggle("hidden",tab!=="settings"||!!viewedFriend);
-  $("profileTitle").textContent=tab==="modules"?(viewedFriend?"Модули друга":"Мои модули"):(tab==="friends"?"Друзья":(tab==="settings"?"Настройки":(viewedFriend?"Профиль друга":"Профиль")));
+  if(viewedFriend&&tab==="settings")return;
+  $("profileCard").classList.toggle("hidden",tab!=="profile");
+  $("friendsPanel").classList.toggle("hidden",tab!=="friends");
+  $("profileModules").classList.toggle("hidden",tab!=="modules");
+  $("profileSettings").classList.toggle("hidden",tab!=="settings");
+  $("profileTitle").textContent=tab==="modules"?(viewedFriend?"Модули пользователя":"Мои модули"):(tab==="friends"?"Друзья":(tab==="settings"?"Настройки":"Профиль"));
   $("tabProfile").classList.toggle("pri",tab==="profile");
   $("tabFriends").classList.toggle("pri",tab==="friends");
   $("tabModules").classList.toggle("pri",tab==="modules");
@@ -542,6 +711,12 @@ function friendCard(profile, action){
   const avatar = profile.avatar ? '<img class="friend-avatar" src="' + escA(profile.avatar) + '" alt="">' : '<span class="friend-avatar blank"></span>';
   return '<div class="friend-row"><span class="status-avatar friend-avatar-wrap">' + avatar + '<i class="presence-dot status-offline" data-presence-user="' + escA(id) + '" title="Не в сети"></i></span><span class="friend-name">' + esc(profile.nickname) + '</span><div class="friend-action">' + action + '</div></div>';
 }
+async function loadProfileAvatars(ids){
+  const unique=[...new Set(ids.filter(Boolean))];
+  if(!unique.length)return new Map();
+  const {data,error}=await sb.rpc("get_profile_avatars",{target_users:unique});
+  return new Map((error?[]:(data||[])).map(row=>[row.user_id,row.avatar_data]));
+}
 async function searchFriends(){
   const term = $("friendSearch").value.trim();
   const box = $("friendResults");
@@ -551,14 +726,18 @@ async function searchFriends(){
   if (error) { box.innerHTML = '<p class="amsg err">Не удалось выполнить поиск. Примените миграцию Supabase.</p>'; return; }
   if (!data.length) { box.innerHTML = '<p class="sub">Никого не нашли.</p>'; return; }
   const ids = data.map(p => p.user_id);
-  const req = await sb.from("friend_requests").select("sender_id,receiver_id,status").or("sender_id.in.(" + ids.join(",") + "),receiver_id.in.(" + ids.join(",") + ")");
+  const [req,avatarById] = await Promise.all([
+    sb.from("friend_requests").select("sender_id,receiver_id,status").or("sender_id.in.(" + ids.join(",") + "),receiver_id.in.(" + ids.join(",") + ")"),
+    loadProfileAvatars(ids)
+  ]);
   const states = req.error ? [] : req.data;
   box.innerHTML = data.map(p => {
     const r = states.find(x => (x.sender_id === user.id && x.receiver_id === p.user_id) || (x.receiver_id === user.id && x.sender_id === p.user_id));
     let action = '<button class="b pri" data-friend="send" data-id="' + p.user_id + '">Добавить</button>';
     if (r && r.status === "accepted") action = '<span class="friend-state">Уже друзья</span>';
     else if (r && r.status === "pending") action = '<span class="friend-state">' + (r.sender_id === user.id ? "Запрос отправлен" : "Есть входящий запрос") + '</span>';
-    return friendCard(p, action);
+    action='<button class="b" data-open-friend="'+p.user_id+'">Профиль</button>'+action;
+    return friendCard({...p,avatar:avatarById.get(p.user_id)||""}, action);
   }).join("");
   refreshPresence();
 }
@@ -576,7 +755,8 @@ async function loadFriends(){
     const p = await sb.from("profiles").select("user_id,nickname").in("user_id",peerIds);
     if (!p.error) profiles = p.data;
   }
-  const byId = id => profiles.find(p => p.user_id === id) || {nickname:"Пользователь"};
+  const avatarById=await loadProfileAvatars(peerIds);
+  const byId = id => ({...(profiles.find(p => p.user_id === id) || {nickname:"Пользователь"}),avatar:avatarById.get(id)||""});
   $("friendIncoming").innerHTML = pending.length ? pending.map(r => friendCard(byId(r.sender_id),
     '<button class="b pri" data-friend="accept" data-id="' + r.id + '">Принять</button><button class="b" data-friend="reject" data-id="' + r.id + '">Отклонить</button>')).join("") : '<p class="sub">Входящих запросов нет.</p>';
   $("friendList").innerHTML = accepted.length ? accepted.map(r => {
@@ -590,10 +770,11 @@ async function friendAction(action,id){
     const {error} = await sb.rpc("request_friend",{target_user:id});
     if (error) {
       const details = [error.message,error.details,error.hint,error.code].filter(Boolean).join(" · ");
-      $("friendResults").insertAdjacentHTML("afterbegin",'<p class="amsg err friend-error">' + esc(details || "Supabase вернул неизвестную ошибку.") + '</p>');
+      const errorBox=viewedFriend?$("friendList"):$("friendResults");
+      errorBox.insertAdjacentHTML("afterbegin",'<p class="amsg err friend-error">' + esc(details || "Supabase вернул неизвестную ошибку.") + '</p>');
       return;
     }
-    await searchFriends(); await loadFriends();
+    if(viewedFriend)await loadPublicProfileFriends();else{await searchFriends();await loadFriends();}
   } else {
     const {error} = await sb.rpc("respond_friend",{request_id:id,accept_request:action === "accept"});
     if (error) {
@@ -601,7 +782,7 @@ async function friendAction(action,id){
       $("friendIncoming").insertAdjacentHTML("afterbegin",'<p class="amsg err friend-error">' + esc(details || "Supabase вернул неизвестную ошибку.") + '</p>');
       return;
     }
-    await loadFriends();
+    if(viewedFriend)await loadPublicProfileFriends();else await loadFriends();
   }
 }
 function profileMsg(message, error){
@@ -746,6 +927,8 @@ async function setNewPassword(){
 }
 async function logout(){
   stopPresence();
+  stopLibrarySync();
+  stopProfileContentSync();
   await sb.auth.signOut();
   mods = seed(); cur = null; synced = false; dirty = false; clearTimeout(saveT);
   try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (e) {}
@@ -757,13 +940,15 @@ async function loadAccount(){
     if (error) throw error;
     if (data && Array.isArray(data.data)) {
       mods = data.data; cur = null;
-      try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (_) {}
       route();
     } else {
       const r = await sb.from("libraries").upsert({ user_id: user.id, data: mods });
       if (r.error) throw r.error;
     }
+    const removedDuplicates=dedupeImportedModules();
+    try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (_) {}
     synced = true; accErr = false;
+    if(removedDuplicates){cloudSave();route();}
     await loadShared();
   } catch (e) { accErr = true; accErrText = (e && e.message) || "ошибка"; }
   renderAcc();
@@ -771,19 +956,21 @@ async function loadAccount(){
 async function onSession(event, session){
   if (event === "PASSWORD_RECOVERY") {
     user = session ? session.user : null; accState = "recovery";
-    if(user)startPresence(user.id);else stopPresence();
+    if(user){startPresence(user.id);startProfileContentSync(user.id);startLibrarySync(user.id);}else{stopPresence();stopProfileContentSync();stopLibrarySync();}
     $("acc").classList.remove("hidden"); renderAcc(); return;
   }
   const u = session ? session.user : null;
   if (u && (!user || user.id !== u.id)) {
-    user = u; if (accState !== "recovery") accState = "in"; startPresence(user.id);
-    renderAcc(); renderShare(); await loadAccount();
+    user = u; if (accState !== "recovery") accState = "in"; startPresence(user.id);startProfileContentSync(user.id);
+    renderAcc(); renderShare(); await loadAccount();startLibrarySync(user.id);await loadProfileContent();
   } else if (!u) {
     stopPresence();
+    stopLibrarySync();
+    stopProfileContentSync();
     user = null; accState = "out"; synced = false; mineRows = []; others = [];
     renderAcc(); renderOthers(); renderShare();
   } else {
-    user = u; if (accState !== "recovery") accState = "in"; startPresence(user.id);
+    user = u; if (accState !== "recovery") accState = "in"; startPresence(user.id);startProfileContentSync(user.id);startLibrarySync(user.id);loadProfileContent();
   }
 }
 function initAuth(){
@@ -809,10 +996,12 @@ $("tabProfile").onclick = () => showFriendsTab(false);
 $("tabFriends").onclick = () => showFriendsTab(true);
 $("tabModules").onclick = () => {
   showProfileTab("modules");
+  if(viewedFriend){loadPublicProfileModules();return;}
   const own=mods.filter(m=>!m.addedFromFriend);
   $("profileModulesList").innerHTML=own.length?'<h2>Мои модули</h2>'+own.map(m=>'<div class="omod"><span><b>'+esc(m.name)+'</b><small>'+m.cards.length+' '+plural(m.cards.length)+'</small></span><button class="b sm" data-rename-module="'+escA(m.id)+'">Переименовать</button></div>').join(""):'<p class="sub">У вас пока нет модулей.</p>';
 };
 $("tabSettings").onclick = () => showProfileTab("settings");
+$("settingsLogout").onclick = logout;
 let friendSearchTimer = null, friendSearchSeq = 0;
 $("friendSearch").addEventListener("input", () => {
   clearTimeout(friendSearchTimer);
@@ -912,20 +1101,29 @@ function saveAvatarData(source){
   img.src=source;
 }
 [$("avatarFile"),$("avatarCameraFile")].forEach(input=>input.onchange=()=>loadAvatar(input));
-$("profileSave").onclick = () => {
+$("profileSave").onclick = async () => {
   if (!user) return;
   const bio = $("profileBio").value.trim();
   if (bio.length > 116) { profileMsg("Описание должно содержать не более 116 символов.", true); return; }
+  const button=$("profileSave");button.disabled=true;
   try {
-    const old = readProfile(); old.bio = bio;
-    if(profileAvatarPending){if(pendingAvatar)old.avatar=pendingAvatar;else delete old.avatar;}
-    localStorage.setItem(profileKey(), JSON.stringify(old));
+    const local=readProfile(),latest=await sb.from("profile_content").select("avatar_data,bio,badge").eq("user_id",user.id).maybeSingle();
+    if(latest.error)throw latest.error;
+    const bioChanged=bio!==(local.bio||"");
+    const savedBio=bioChanged?bio:(latest.data?.bio??local.bio??"");
+    const avatar=profileAvatarPending?(pendingAvatar||null):(latest.data?.avatar_data??local.avatar??null);
+    const result=await sb.from("profile_content").upsert({
+      user_id:user.id,avatar_data:avatar,bio:savedBio,badge:local.badge||latest.data?.badge||null,updated_at:new Date().toISOString()
+    },{onConflict:"user_id"}).select("avatar_data,bio,badge").single();
+    if(result.error)throw result.error;
+    cacheProfileContent(result.data);
     profileAvatarPending=false;pendingAvatar=undefined;updateProfileNav();
-    const button=$("profileSave");button.textContent="Сохранено";$("profileMsg").textContent="";
+    button.textContent="Сохранено";$("profileMsg").textContent="";
     button.classList.remove("hidden");
     if(profileSavedTimer)clearTimeout(profileSavedTimer);
     profileSavedTimer=setTimeout(()=>{button.classList.add("hidden");$("profileMsg").textContent="";button.textContent="Сохранить";},3000);
-  } catch (_) { profileMsg("Не удалось сохранить описание.", true); }
+  } catch (_) { profileMsg("Не удалось синхронизировать профиль. Проверьте подключение и примените миграцию Supabase.", true); }
+  button.disabled=false;
 };
 $("profileBio").addEventListener("input",()=>{resizeProfileBio();syncProfileSave();});
 window.addEventListener("resize",()=>{resizeProfileBio();fitProfileNickname();});
@@ -945,11 +1143,20 @@ $("profileNickSave").onclick = async () => {
 $("acc").addEventListener("input",e=>{
   if(e.target.id==="anick"||e.target.id==="anickEdit")cleanNicknameInput(e.target);
 });
+function positionEmojiPicker(){
+  const picker=$("emojiPicker");if(!picker||picker.classList.contains("hidden"))return;
+  const avatar=$("avatarPick").getBoundingClientRect(),width=picker.getBoundingClientRect().width;
+  const left=Math.max(8,Math.min(avatar.right+8,window.innerWidth-width-8));
+  const top=Math.max(8,Math.min(avatar.top,window.innerHeight-picker.offsetHeight-8));
+  picker.style.left=left+"px";picker.style.top=top+"px";
+}
+window.addEventListener("resize",positionEmojiPicker);
 function openEmojiPicker(e){
   e.stopPropagation();
   const picker=$("emojiPicker");
   picker.classList.toggle("hidden");
-  if(!picker.classList.contains("hidden")){$("emojiInput").value=readProfile().badge||"";$("emojiInput").focus();}
+  if(!picker.classList.contains("hidden"))positionEmojiPicker();
+  if(!picker.classList.contains("hidden")){$("emojiInput").value="";$("emojiInput").focus();}
 }
 $("emojiTrigger").onclick=openEmojiPicker;
 $("profileBadge").onclick=openEmojiPicker;
@@ -971,7 +1178,33 @@ function applyProfileEmoji(value){
     updateProfileNav();
     fitProfileNickname();
     $("emojiPicker").classList.add("hidden");
+    persistProfileBadge(emoji);
   }catch(_){profileMsg("Не удалось сохранить смайлик.",true);}
+}
+async function persistProfileBadge(badge){
+  if(!user||!sb)return;
+  const userId=user.id;
+  pendingProfileBadge=badge||"";
+  try{
+    let result=await sb.from("profile_content").select("user_id").eq("user_id",userId).maybeSingle();
+    if(result.error)throw result.error;
+    const patch={badge:badge||null,updated_at:new Date().toISOString()};
+    if(result.data){
+      result=await sb.from("profile_content").update(patch).eq("user_id",userId).select("avatar_data,bio,badge").single();
+    }else{
+      const local=readProfile();
+      result=await sb.from("profile_content").insert({user_id:userId,avatar_data:local.avatar||null,bio:local.bio||"",...patch}).select("avatar_data,bio,badge").single();
+      if(result.error?.code==="23505")result=await sb.from("profile_content").update(patch).eq("user_id",userId).select("avatar_data,bio,badge").single();
+    }
+    if(result.error)throw result.error;
+    if(user?.id!==userId)return;
+    pendingProfileBadge=undefined;
+    cacheProfileContent(result.data);
+    updateProfileNav();
+  }catch(_){
+    if(user?.id===userId)pendingProfileBadge=undefined;
+    if(location.hash==="#profile"&&!viewedFriend)profileMsg("Не удалось синхронизировать смайлик профиля.",true);
+  }
 }
 $("emojiApply").onclick=()=>applyProfileEmoji($("emojiInput").value);
 $("emojiInput").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();applyProfileEmoji(e.currentTarget.value);}});
@@ -979,11 +1212,12 @@ $("emojiInput").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefa
   const value=$("emojiInput").value, segmenter=window.Intl&&Intl.Segmenter?new Intl.Segmenter(undefined,{granularity:"grapheme"}):null;
   const isEmoji=part=>/[\p{Extended_Pictographic}\p{Regional_Indicator}\u20E3]/u.test(part);
   const one=segmenter?[...segmenter.segment(value)].map(part=>part.segment).find(isEmoji):Array.from(value).find(isEmoji);
-  if(one&&value!==one)$("emojiInput").value=one;
+  const cleaned=one||"";
+  if(value!==cleaned){const input=$("emojiInput");input.value=cleaned;input.setSelectionRange(cleaned.length,cleaned.length);}
 });
 $("emojiRemove").onclick=()=>{
   const data=readProfile();delete data.badge;
-  try{localStorage.setItem(profileKey(),JSON.stringify(data));$("profileBadge").textContent="";$("profileBadge").classList.add("hidden");$("emojiTrigger").classList.remove("hidden");updateProfileNav();fitProfileNickname();$("emojiPicker").classList.add("hidden");}
+  try{localStorage.setItem(profileKey(),JSON.stringify(data));$("profileBadge").textContent="";$("profileBadge").classList.add("hidden");$("emojiTrigger").classList.remove("hidden");updateProfileNav();fitProfileNickname();$("emojiPicker").classList.add("hidden");persistProfileBadge(null);}
   catch(_){profileMsg("Не удалось убрать смайлик.",true);}
 };
 document.addEventListener("click",e=>{
@@ -1284,11 +1518,13 @@ async function loadFriendFeed(){
     if(!m.error)(m.data||[]).forEach(x=>all.push({...x,friendId:id,friendName:p.data?.nickname||"Друг"}));
   }
   others=all;
-  renderFriendModules(all.map(x=>({module_name:x.module_name,cards:x.cards,friendName:x.friendName})).map(x=>({...x,module_name:x.friendName+" · "+x.module_name})),"omods");
+  all.sort((a,b)=>Number(friendModuleAlreadyAdded(a))-Number(friendModuleAlreadyAdded(b)));
+  renderFriendModules(all.map(x=>({...x,sourceUserId:x.friendId,sourceModuleId:x.module_id})),"omods");
 }
-$("omods").onclick = e => { const b=e.target.closest("[data-import-friend]"); if(b)importFriendModule("omods",+b.dataset.importFriend,b); };
 function renderShare(){
   const box = $("shr"); if (!cur) return;
+  if(cur.addedFromFriend){box.innerHTML="";box.classList.add("hidden");return;}
+  box.classList.remove("hidden");
   if (!user) { box.innerHTML = '<p>Войдите в аккаунт, чтобы делиться модулями.</p>'; return; }
   const on = !!cur.sharedId && mineRows.some(r => r.id === cur.sharedId);
   box.innerHTML = (on
@@ -1297,7 +1533,7 @@ function renderShare(){
     (shareErr ? '<p class="err">Не удалось: ' + esc(shareErr) + '</p>' : '');
 }
 async function shareNow(){
-  const c = cur; if (!c || !user) return;
+  const c = cur; if (!c || c.addedFromFriend || !user) return;
   const row = { name: c.name, cards: c.cards, author: authorName() };
   let error = null;
   if (c.sharedId && mineRows.some(r => r.id === c.sharedId)) {
@@ -1311,7 +1547,7 @@ async function shareNow(){
   await loadShared();
 }
 async function unshare(){
-  const c = cur; if (!c || !user || !c.sharedId) return;
+  const c = cur; if (!c || c.addedFromFriend || !user || !c.sharedId) return;
   const { error } = await sb.from("shared_modules").delete().eq("id", c.sharedId);
   if (!error) { delete c.sharedId; save(); }
   shareErr = error ? error.message : "";

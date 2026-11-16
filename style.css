@@ -65,8 +65,10 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 
 /* library */
 .mods{display:grid;gap:12px;margin-bottom:32px}
+#oth>h2{position:relative;top:-6px}
 .mod{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px 20px;cursor:pointer;box-shadow:var(--shadow);transition:border-color .15s}
 .mod:hover{border-color:var(--blue)}
+.readonly-module #list button[data-act="edit"],.readonly-module #list button[data-act="del"],.readonly-module #list [data-rm]{display:none!important}
 .mod b{display:block;font-size:1.05rem;font-weight:800;overflow-wrap:anywhere}
 .mod small{display:block;color:var(--muted);font-size:.85rem;margin-top:2px;overflow-wrap:anywhere}
 .mod i{font-style:normal;flex:none;min-width:38px;text-align:center;padding:6px 10px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-weight:800;font-size:.9rem}
@@ -92,7 +94,7 @@ button.b.pri:hover{filter:brightness(1.07)}
 .tools{display:flex;justify-content:center;gap:8px;margin-bottom:36px}
 .tools .b{padding:8px 14px;font-size:.85rem}
 .add{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:28px}
-.add.one{grid-template-columns:1fr auto}
+.add.one{grid-template-columns:1fr auto;margin-bottom:12px}
 .add input{font:inherit;width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink)}
 .add input::placeholder{color:var(--muted)}
 .add .b{grid-column:1/-1}
@@ -149,13 +151,14 @@ button:disabled{opacity:.5;cursor:default}
 .profile-layout{display:grid;grid-template-columns:132px minmax(0,1fr);align-items:start;gap:22px}
 .avatar-pick{width:132px;height:132px;display:grid;place-items:center;padding:0;border:3px solid var(--line);border-radius:50%;overflow:visible;background:var(--blue-soft);cursor:pointer}
 .avatar-pick img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.avatar-pick:disabled{opacity:1;cursor:default}
 .profile-details{min-width:0}
 .profile-nickline{display:flex;align-items:center;gap:7px;position:relative;margin:2px 0 24px;min-width:0}
 .profile-details h2{flex:none;margin:0;white-space:nowrap;overflow:visible;font-family:var(--head);font-size:1.8rem;font-weight:600;letter-spacing:.035em;text-transform:uppercase;color:var(--ink)}
 #profileBadge{padding:0;border:0;background:transparent;color:inherit;font:inherit;font-size:1.15rem;line-height:1;cursor:pointer}
 .emoji-picker-wrap{position:relative;flex:none}
 .emoji-trigger{width:25px;height:25px;padding:0;border:0;border-radius:50%;background:var(--blue-soft);color:var(--ink);font-size:17px;line-height:1;cursor:pointer}
-.emoji-picker{position:absolute;top:calc(100% + 6px);left:0;z-index:10;display:grid;gap:8px;width:245px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow)}
+.emoji-picker{position:fixed;top:100px;left:8px;z-index:50;display:grid;gap:8px;width:min(260px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow)}
 .emoji-picker label{font-size:.78rem;color:var(--muted);line-height:1.35}
 .emoji-picker input{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit;font-size:1.25rem}
 .emoji-picker-actions{display:flex;gap:6px}
@@ -172,16 +175,18 @@ button:disabled{opacity:.5;cursor:default}
 .avatar-camera-actions{display:flex;justify-content:space-between;gap:8px}
 .avatar-dialog-card .danger{color:var(--accent-ink)}
 #profileSettingsMsg{min-height:1.4em}
+.settings-logout{margin-top:20px}
 .profile-card .amsg{min-height:1.4em}
 .profile-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:18px 0 12px;padding:5px;background:var(--blue-soft);border:1px solid var(--line);border-radius:16px;width:100%}
+#profile.viewing-friend .profile-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
 .profile-tabs .b{min-width:0;padding:10px 6px;white-space:nowrap}
 .theme-choices{position:static;display:grid;width:100%;max-width:none;box-shadow:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
 .theme-choices .palt{grid-column:1/-1}
-.added-title{grid-column:1/-1;margin-top:18px}
+.own-title,.added-title{grid-column:1/-1;margin-top:8px}
 .friend-row{display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:8px 12px;padding:14px;margin:10px 0;background:var(--bg);border:1px solid var(--line);border-radius:16px}
 .friend-avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;background:var(--blue-soft);flex:none}
 .friend-avatar-wrap{width:38px;height:38px}
-.friend-avatar-wrap .presence-dot{right:0;bottom:0}
+.friend-avatar-wrap .presence-dot{right:0;bottom:0;width:11px;height:11px;border-width:1px}
 .friend-avatar.blank{display:block}
 .friend-name{font-weight:700;flex:1;min-width:0;overflow-wrap:anywhere}
 .friend-action{grid-column:2;justify-self:end;display:flex;gap:8px;align-items:center}
@@ -199,6 +204,7 @@ button:disabled{opacity:.5;cursor:default}
 .omod b{display:block;font-weight:800;overflow-wrap:break-word;word-break:normal;hyphens:none}
 .omod small{display:block;color:var(--muted);font-size:.85rem;overflow-wrap:anywhere}
 .omod .b{flex:none;padding:9px 14px;font-size:.9rem}
+button.b.added-module,button.b.added-module:hover{background:var(--blue-soft);border-color:var(--line);color:var(--muted);cursor:default;filter:none;opacity:1}
 .shr{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px 18px;margin-bottom:20px;font-size:.9rem}
 .shr p{margin:0 0 12px;color:var(--muted)}
 .shr .b{margin:0 8px 0 0}
@@ -323,6 +329,7 @@ li img.th{width:32px;height:32px;flex:none;border-radius:9px;object-fit:cover;bo
   .profile-card{padding:18px}
   .profile-layout{grid-template-columns:84px minmax(0,1fr);gap:14px}
   .avatar-pick{width:84px;height:84px}
+  #profilePresence{right:5px;bottom:5px;width:14px;height:14px}
   .profile-details h2{font-size:1.45rem}
   .profile-nickline{margin-bottom:18px}
   .profile-bio{min-height:42px;padding:9px;font-size:.9rem}

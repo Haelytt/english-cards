@@ -42,23 +42,25 @@
               <button class="emoji-trigger" id="emojiTrigger" type="button" aria-label="Добавить смайлик рядом с никнеймом">☺</button>
               <div class="emoji-picker hidden" id="emojiPicker" role="group" aria-label="Введите смайлик">
                 <label for="emojiInput">Введите один смайлик с клавиатуры</label>
-                <input id="emojiInput" type="text" maxlength="32" placeholder="🙂" autocomplete="off">
+                <input id="emojiInput" type="text" maxlength="32" autocomplete="off">
                 <div class="emoji-picker-actions"><button type="button" class="b pri" id="emojiApply">Добавить</button><button type="button" class="b" id="emojiRemove">Убрать</button></div>
               </div>
             </div>
           </div>
           <label class="nicklabel" for="profileBio">О себе</label>
-          <textarea class="profile-bio" id="profileBio" maxlength="116" placeholder="Добавьте описание..." rows="1"></textarea>
+          <textarea class="profile-bio" id="profileBio" maxlength="116" placeholder="Добавьте описание..." rows="1" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
         </div>
       </div>
-      <div class="profile-footer"><p class="amsg" id="profileMsg"></p><button class="b pri hidden" id="profileSave">Сохранить</button></div>
+      <div class="profile-footer" id="profileFooter"><p class="amsg" id="profileMsg"></p><button class="b pri hidden" id="profileSave">Сохранить</button></div>
     </div>
     <div class="profile-card hidden" id="friendsPanel">
-      <h2>Найти друзей</h2>
-      <div class="arow"><input class="ei" id="friendSearch" placeholder="Введите никнейм" autocomplete="off"></div>
-      <div id="friendResults"></div>
-      <h2>Входящие запросы</h2><div id="friendIncoming"></div>
-      <h2>Мои друзья</h2><div id="friendList"></div>
+      <div id="friendControls">
+        <h2>Найти друзей</h2>
+        <div class="arow"><input class="ei" id="friendSearch" placeholder="Введите никнейм" autocomplete="off"></div>
+        <div id="friendResults"></div>
+        <h2>Входящие запросы</h2><div id="friendIncoming"></div>
+      </div>
+      <h2 id="friendListHeading">Мои друзья</h2><div id="friendList"></div>
     </div>
     <div class="profile-card hidden" id="profileModules"><div id="profileModulesList"></div></div>
     <div class="profile-card hidden" id="profileSettings">
@@ -66,6 +68,7 @@
       <div class="arow"><input class="ei" id="profileNick" maxlength="15" autocomplete="nickname"><button class="b pri" id="profileNickSave">Сохранить</button></div>
       <p class="amsg" id="profileSettingsMsg"></p>
       <h2>Тема оформления</h2><div class="theme-choices" id="themeChoices"></div>
+      <button class="b danger settings-logout" id="settingsLogout" type="button">Выйти из аккаунта</button>
     </div>
   </section>
 
@@ -75,13 +78,13 @@
     <p class="sub" id="sub"></p>
     <div class="row2"><button class="b pri big" id="start">Карточки</button><button class="b pri big" id="learn">Заучивание</button><button class="b pri big" id="pick">Подбор</button></div>
 
-    <h2>Добавить слово</h2>
-    <div class="add">
+    <h2 id="addWordHeading">Добавить слово</h2>
+    <div class="add" id="wordEditor">
       <input id="w" placeholder="Слово на английском" autocomplete="off" autocapitalize="off">
       <input id="t" placeholder="Перевод" autocomplete="off">
       <button class="b pri" id="addBtn">Добавить карточку</button>
     </div>
-    <div class="ioactions"><button class="b" id="importBtn">Импортировать</button><button class="b" id="exportBtn">Экспортировать</button></div>
+    <div class="ioactions" id="moduleIO"><button class="b" id="importBtn">Импортировать</button><button class="b" id="exportBtn">Экспортировать</button></div>
     <h2 id="lh">Все слова</h2>
     <ul id="list"></ul>
     <div class="shr" id="shr"></div>
