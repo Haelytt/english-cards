@@ -156,6 +156,7 @@ button:disabled{opacity:.5;cursor:default}
 .profile-nickline{display:flex;align-items:center;gap:7px;position:relative;margin:2px 0 24px;min-width:0}
 .profile-details h2{flex:none;margin:0;white-space:nowrap;overflow:visible;font-family:var(--head);font-size:1.8rem;font-weight:600;letter-spacing:.035em;text-transform:uppercase;color:var(--ink)}
 #profileBadge{padding:0;border:0;background:transparent;color:inherit;font:inherit;font-size:1.15rem;line-height:1;cursor:pointer}
+#profileBadge:disabled{opacity:1;cursor:default}
 .emoji-picker-wrap{position:relative;flex:none}
 .emoji-trigger{width:25px;height:25px;padding:0;border:0;border-radius:50%;background:var(--blue-soft);color:var(--ink);font-size:17px;line-height:1;cursor:pointer}
 .emoji-picker{position:fixed;top:100px;left:8px;z-index:50;display:grid;gap:8px;width:min(260px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow)}
@@ -164,6 +165,7 @@ button:disabled{opacity:.5;cursor:default}
 .emoji-picker-actions{display:flex;gap:6px}
 .emoji-picker-actions .b{flex:1;min-width:0;padding:8px 5px;font-size:.8rem}
 .profile-bio{display:block;width:100%;height:auto;min-height:42px;max-height:none;resize:none;overflow:hidden;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--bg);color:var(--ink);font:inherit}
+.profile-bio:disabled{opacity:1;cursor:default}
 .profile-footer{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:16px}
 .profile-footer .amsg{margin:0;min-height:1.4em}
 .avatar-dialog{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(20,28,45,.52)}
@@ -182,6 +184,7 @@ button:disabled{opacity:.5;cursor:default}
 .profile-tabs .b{min-width:0;padding:10px 6px;white-space:nowrap}
 .theme-choices{position:static;display:grid;width:100%;max-width:none;box-shadow:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
 .theme-choices .palt{grid-column:1/-1}
+.profile-modules-toolbar{display:flex;justify-content:space-between;gap:8px;margin-bottom:12px}
 .own-title,.added-title{grid-column:1/-1;margin-top:8px}
 .friend-row{display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:8px 12px;padding:14px;margin:10px 0;background:var(--bg);border:1px solid var(--line);border-radius:16px}
 .friend-avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;background:var(--blue-soft);flex:none}
@@ -201,9 +204,11 @@ button:disabled{opacity:.5;cursor:default}
 .acc p:last-child{margin-bottom:0}
 .acc .err{color:var(--accent-ink)}
 .omod{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:16px 20px}
+#profileModulesList .omod{margin:12px 0}
 .omod b{display:block;font-weight:800;overflow-wrap:break-word;word-break:normal;hyphens:none}
 .omod small{display:block;color:var(--muted);font-size:.85rem;overflow-wrap:anywhere}
 .omod .b{flex:none;padding:9px 14px;font-size:.9rem}
+.omod-actions{display:grid;gap:6px;flex:none}
 button.b.added-module,button.b.added-module:hover{background:var(--blue-soft);border-color:var(--line);color:var(--muted);cursor:default;filter:none;opacity:1}
 .shr{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px 18px;margin-bottom:20px;font-size:.9rem}
 .shr p{margin:0 0 12px;color:var(--muted)}

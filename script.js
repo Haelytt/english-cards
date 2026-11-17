@@ -24,7 +24,7 @@ const save = () => {
 const plural = n => { const a = n % 10, b = n % 100; return (a === 1 && b !== 11) ? "слово" : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? "слова" : "слов"; };
 
 let cur = null, idx = 0, sure = false;
-let viewedFriend = null, viewedProfileData = null;
+let viewedFriend = null, viewedProfileData = null, profileModulesView = "modules";
 let profileAvatarPending = false, pendingAvatar = undefined, pendingProfileBadge = undefined, profileSavedTimer = null, avatarStream = null;
 let profileContentChannel=null,profileContentUserId=null,profileLoadPromise=null,profileLoadUserId=null;
 
@@ -35,7 +35,7 @@ function renderLib(){
     return '<button class="mod" data-id="' + m.id + '"><span><b>' + esc(m.name) + '</b><small>' +
       (pv ? esc(pv) + (n > 3 ? "…" : "") : "Пока пусто") + '</small></span><i>' + n + '</i></button>';
   }).join("");
-  const own = mods.filter(m => !m.addedFromFriend), added = mods.filter(m => m.addedFromFriend);
+  const own = mods.filter(m => !m.addedFromFriend&&!m.archived), added = mods.filter(m => m.addedFromFriend&&!m.archived);
   $("mods").innerHTML = (own.length ? '<h2 class="own-title">Мои модули</h2>' + render(own) : "") +
     (added.length ? '<h2 class="added-title">Добавленные модули</h2>' + render(added) : "");
 }
@@ -430,7 +430,7 @@ function paintProfileContent(data=readProfile()){
   $("emojiTrigger").classList.toggle("hidden",!!viewedFriend||!!data.badge);
   $("emojiTrigger").disabled=!!viewedFriend;
   $("avatarPick").disabled=!!viewedFriend;
-  $("profileBio").readOnly=!!viewedFriend;
+  $("profileBio").disabled=!!viewedFriend;
   $("profileFooter").classList.toggle("hidden",!!viewedFriend);
   if(!viewedFriend){profileAvatarPending=false;pendingAvatar=undefined;syncProfileSave();}
 }
@@ -605,10 +605,14 @@ function startLibrarySync(userId){
 ["pointerdown","keydown","touchstart","pointermove","wheel","scroll"].forEach(eventName=>window.addEventListener(eventName,markPresenceActive,{passive:true}));
 function renderProfile(){
   if (!user) return;
+  profileModulesView="modules";
   $("tabProfile").classList.remove("hidden");
   $("tabFriends").classList.remove("hidden");
   $("tabSettings").classList.toggle("hidden",!!viewedFriend);
   $("profile").classList.toggle("viewing-friend",!!viewedFriend);
+  $("profileModulesToolbar").classList.toggle("hidden",!!viewedFriend);
+  $("profileModulesBack").classList.add("hidden");
+  $("openModuleArchive").classList.toggle("hidden",!!viewedFriend);
   $("tabModules").textContent = "Модули";
   $("friendControls").classList.toggle("hidden",!!viewedFriend);
   $("friendListHeading").textContent=viewedFriend?"Друзья пользователя":"Мои друзья";
@@ -660,6 +664,35 @@ async function loadPublicProfileFriends(profileId=viewedFriend,nickname=viewedPr
   }).join("");
   $("friendList").innerHTML=cards||'<p class="sub">У пользователя пока нет друзей.</p>';
   refreshPresence();
+}
+function renderOwnProfileModules(){
+  const activeOwn=mods.filter(m=>!m.addedFromFriend&&!m.archived);
+  const activeAdded=mods.filter(m=>m.addedFromFriend&&!m.archived);
+  const archived=mods.filter(m=>m.archived);
+  const archiving=profileModulesView==="archive";
+  const render=list=>list.map(m=>{
+    const actions=archiving
+      ?'<button class="b sm" data-archive-module="'+escA(m.id)+'" data-archived="'+(m.archived?'true':'false')+'">'+(m.archived?'Вернуть в библиотеку':'Добавить в архив')+'</button>'
+      :(!m.addedFromFriend?'<button class="b sm" data-rename-module="'+escA(m.id)+'">Переименовать</button>':"");
+    const label=m.addedFromFriend?'Добавленный модуль · '+m.cards.length+' '+plural(m.cards.length):m.cards.length+' '+plural(m.cards.length);
+    return '<div class="omod"><span><b>'+esc(m.name)+'</b><small>'+label+'</small></span><div class="omod-actions">'+actions+'</div></div>';
+  }).join("");
+  let html="";
+  if(archiving){
+    const active=[...activeOwn,...activeAdded];
+    if(archived.length)html+='<h2>В архиве</h2>'+render(archived);
+    if(active.length)html+='<h2>Добавить в архив</h2>'+render(active);
+    if(!active.length&&!archived.length)html='<p class="sub">У вас пока нет модулей.</p>';
+  }else{
+    if(activeOwn.length)html+='<h2>Мои модули</h2>'+render(activeOwn);
+    if(activeAdded.length)html+='<h2>Добавленные модули</h2>'+render(activeAdded);
+    if(!activeOwn.length&&!activeAdded.length)html='<p class="sub">У вас пока нет модулей.</p>';
+  }
+  $("profileModulesBack").classList.toggle("hidden",!archiving);
+  $("openModuleArchive").classList.toggle("hidden",archiving||!!viewedFriend);
+  $("openModuleArchive").textContent="Архив"+(archived.length?' · '+archived.length:"");
+  $("profileModulesToolbar").classList.toggle("hidden",!!viewedFriend);
+  $("profileModulesList").innerHTML=html;
 }
 function renderFriendModules(rows,container){
   $(container).innerHTML=rows.length?rows.map((m,i)=>{
@@ -997,9 +1030,11 @@ $("tabFriends").onclick = () => showFriendsTab(true);
 $("tabModules").onclick = () => {
   showProfileTab("modules");
   if(viewedFriend){loadPublicProfileModules();return;}
-  const own=mods.filter(m=>!m.addedFromFriend);
-  $("profileModulesList").innerHTML=own.length?'<h2>Мои модули</h2>'+own.map(m=>'<div class="omod"><span><b>'+esc(m.name)+'</b><small>'+m.cards.length+' '+plural(m.cards.length)+'</small></span><button class="b sm" data-rename-module="'+escA(m.id)+'">Переименовать</button></div>').join(""):'<p class="sub">У вас пока нет модулей.</p>';
+  profileModulesView="modules";
+  renderOwnProfileModules();
 };
+$("openModuleArchive").onclick=()=>{profileModulesView="archive";renderOwnProfileModules();};
+$("profileModulesBack").onclick=()=>{profileModulesView="modules";renderOwnProfileModules();};
 $("tabSettings").onclick = () => showProfileTab("settings");
 $("settingsLogout").onclick = logout;
 let friendSearchTimer = null, friendSearchSeq = 0;
@@ -1017,6 +1052,12 @@ $("friendSearch").addEventListener("input", () => {
   }, 300);
 });
 document.addEventListener("click", e => {
+  const archive=e.target.closest("[data-archive-module]");
+  if(archive){
+    const module=mods.find(m=>m.id===archive.dataset.archiveModule);
+    if(module){module.archived=archive.dataset.archived!=="true";save();renderLib();renderOwnProfileModules();}
+    return;
+  }
   const rename=e.target.closest("[data-rename-module]");
   if(rename){
     const module=mods.find(m=>m.id===rename.dataset.renameModule&&!m.addedFromFriend);

@@ -62,7 +62,13 @@
       </div>
       <h2 id="friendListHeading">Мои друзья</h2><div id="friendList"></div>
     </div>
-    <div class="profile-card hidden" id="profileModules"><div id="profileModulesList"></div></div>
+    <div class="profile-card hidden" id="profileModules">
+      <div class="profile-modules-toolbar" id="profileModulesToolbar">
+        <button class="b hidden" id="profileModulesBack" type="button">← К модулям</button>
+        <button class="b" id="openModuleArchive" type="button">Архив</button>
+      </div>
+      <div id="profileModulesList"></div>
+    </div>
     <div class="profile-card hidden" id="profileSettings">
       <h2>Никнейм</h2>
       <div class="arow"><input class="ei" id="profileNick" maxlength="15" autocomplete="nickname"><button class="b pri" id="profileNickSave">Сохранить</button></div>
