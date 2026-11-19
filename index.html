@@ -30,10 +30,17 @@
     <div class="profile-tabs"><button class="b pri" id="tabProfile">Профиль</button><button class="b" id="tabFriends">Друзья</button><button class="b" id="tabModules">Модули</button><button class="b" id="tabSettings">Настройки</button></div>
     <div class="profile-card" id="profileCard">
       <div class="profile-layout">
-        <button class="avatar-pick status-avatar" id="avatarPick" type="button" aria-label="Изменить фото профиля">
-          <img id="profileAvatar" alt="">
-          <i class="presence-dot status-offline hidden" id="profilePresence" title="Не в сети"></i>
-        </button>
+        <div class="profile-avatar-column">
+          <button class="avatar-pick status-avatar" id="avatarPick" type="button" aria-label="Изменить фото профиля">
+            <img id="profileAvatar" alt="">
+            <span class="profile-rank-crown hidden" id="profileRankCrown" aria-label="Первое место в рейтинге" title="Первое место в рейтинге"><svg viewBox="0 0 512 512" aria-hidden="true"><path d="M44 371 16 133c-2-18 19-29 33-17l84 68c9 7 22 5 29-5L235 80c10-14 32-11 39 5l56 94c6 11 21 14 31 5l109-94c15-13 38 1 33 20l-64 261H44Zm2 36h420v40c0 24-19 44-44 44H90c-25 0-44-20-44-44v-40Z"/></svg></span>
+            <i class="presence-dot status-offline hidden" id="profilePresence" title="Не в сети"></i>
+          </button>
+          <div class="profile-ranks" aria-label="Место в рейтинге">
+            <span class="profile-rank-block" id="profileMonthRank"><span class="profile-rank-label">Топ — за месяц</span></span>
+            <span class="profile-rank-block" id="profileAllRank"><span class="profile-rank-label">Топ — за всё время</span></span>
+          </div>
+        </div>
         <div class="profile-details">
           <div class="profile-nickline">
             <h2 id="profileDisplayNick"></h2>
@@ -52,6 +59,10 @@
         </div>
       </div>
       <div class="profile-footer" id="profileFooter"><p class="amsg" id="profileMsg"></p><button class="b pri hidden" id="profileSave">Сохранить</button></div>
+    </div>
+    <div class="profile-card hidden" id="ratingPanel">
+      <div class="rating-head"><h2>Рейтинг</h2><div class="rating-switch"><button class="b pri" id="ratingMonth" type="button">За месяц</button><button class="b" id="ratingAll" type="button">За всё время</button></div></div>
+      <div id="ratingList"><p class="sub">Загружаем рейтинг…</p></div>
     </div>
     <div class="profile-card hidden" id="friendsPanel">
       <div id="friendControls">
@@ -91,6 +102,7 @@
       <button class="b pri" id="addBtn">Добавить карточку</button>
     </div>
     <div class="ioactions" id="moduleIO"><button class="b" id="importBtn">Импортировать</button><button class="b" id="exportBtn">Экспортировать</button></div>
+    <p class="sub learn-completion-note">После прохождения «заучивания» без ошибок, модуль считается выученным.</p>
     <h2 id="lh">Все слова</h2>
     <ul id="list"></ul>
     <div class="shr" id="shr"></div>

@@ -15,6 +15,7 @@ if (!Array.isArray(mods)) mods = seed();
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const rankFrameSrc = rank => ({1:"Gold%20frame.png",2:"Silver%20frame.png",3:"Bronse%20frame.png"}[rank]||"");
 let quotaWarned = false;
 const save = () => {
   try { localStorage.setItem(KEY, JSON.stringify(mods)); }
@@ -25,6 +26,7 @@ const plural = n => { const a = n % 10, b = n % 100; return (a === 1 && b !== 11
 
 let cur = null, idx = 0, sure = false;
 let viewedFriend = null, viewedProfileData = null, profileModulesView = "modules";
+let ratingPeriod="month",ratingRequestSeq=0,ratingRefreshTimer=null,profileRankRequestSeq=0;
 let profileAvatarPending = false, pendingAvatar = undefined, pendingProfileBadge = undefined, profileSavedTimer = null, avatarStream = null;
 let profileContentChannel=null,profileContentUserId=null,profileLoadPromise=null,profileLoadUserId=null;
 
@@ -33,11 +35,14 @@ function renderLib(){
     const n = m.cards.length;
     const pv = m.cards.slice(0, 3).map(c => c.w).join(", ");
     return '<button class="mod" data-id="' + m.id + '"><span><b>' + esc(m.name) + '</b><small>' +
-      (pv ? esc(pv) + (n > 3 ? "…" : "") : "Пока пусто") + '</small></span><i>' + n + '</i></button>';
+      (pv ? esc(pv) + (n > 3 ? "…" : "") : "Пока пусто") + '</small></span><span class="mod-count"><i>' + n + '</i>' + (m.learnedPerfectly?'<span class="module-learned" title="Выучено без ошибок" aria-label="Выучено без ошибок"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5"/></svg></span>':"") + '</span></button>';
   }).join("");
   const own = mods.filter(m => !m.addedFromFriend&&!m.archived), added = mods.filter(m => m.addedFromFriend&&!m.archived);
   $("mods").innerHTML = (own.length ? '<h2 class="own-title">Мои модули</h2>' + render(own) : "") +
     (added.length ? '<h2 class="added-title">Добавленные модули</h2>' + render(added) : "");
+}
+function clearLearnedMark(module){
+  if(module)delete module.learnedPerfectly;
 }
 function dedupeImportedModules(){
   const seen=new Set();
@@ -178,7 +183,7 @@ function add(){
   if(!cur||cur.addedFromFriend)return;
   const w = $("w").value.trim(), t = $("t").value.trim();
   if (!w || !t) { (w ? $("t") : $("w")).focus(); return; }
-  cur.cards.push({w, t}); idx = cur.cards.length - 1; save();
+  cur.cards.push({w, t}); clearLearnedMark(cur); idx = cur.cards.length - 1; save();
   $("w").value = ""; $("t").value = ""; $("w").focus(); renderStudy();
 }
 $("addBtn").onclick = add;
@@ -280,7 +285,7 @@ function importCards(){
   if(!cur||cur.addedFromFriend)return;
   const cards = parseImportText();
   if (!cards.length) { $("ioMsg").textContent = "Не найдено ни одной пары. Проверьте разделители."; return; }
-  cur.cards.push(...cards);
+  cur.cards.push(...cards); clearLearnedMark(cur);
   save(); editIdx = -1; renderStudy(); renderLib(); closeIO();
 }
 $("importBtn").onclick = () => openIO("import");
@@ -295,19 +300,19 @@ function saveEdit(){
   if (!w || !t) { (w ? $("et") : $("ew")).focus(); return; }
   const old = cur.cards[editIdx], nw = {w, t};
   if (old.wi) nw.wi = old.wi; if (old.ti) nw.ti = old.ti;
-  cur.cards[editIdx] = nw; editIdx = -1; save(); renderStudy();
+  cur.cards[editIdx] = nw; clearLearnedMark(cur); editIdx = -1; save(); renderStudy();
 }
 $("list").onclick = e => {
   if(!cur||cur.addedFromFriend)return;
   const rm = e.target.closest("[data-rm]");
-  if (rm) { if (editIdx > -1 && cur.cards[editIdx]) { delete cur.cards[editIdx][rm.dataset.rm]; save(); renderList(); } return; }
+  if (rm) { if (editIdx > -1 && cur.cards[editIdx]) { delete cur.cards[editIdx][rm.dataset.rm]; clearLearnedMark(cur); save(); renderList(); } return; }
   const b = e.target.closest("button"); if (!b) return;
   const act = b.dataset.act, i = +b.dataset.i;
   if (act === "edit") { editIdx = i; renderList(); const ew = $("ew"); ew.focus(); ew.setSelectionRange(ew.value.length, ew.value.length); }
   else if (act === "cancel") { editIdx = -1; renderList(); }
   else if (act === "save") saveEdit();
   else if (act === "pic") { picField = b.dataset.pic; fileIn.click(); }
-  else if (act === "del") { cur.cards.splice(i, 1); editIdx = -1; save(); renderStudy(); }
+  else if (act === "del") { cur.cards.splice(i, 1); clearLearnedMark(cur); editIdx = -1; save(); renderStudy(); }
 };
 $("list").addEventListener("keydown", e => {
   if (!e.target.classList.contains("ei")) return;
@@ -325,7 +330,7 @@ fileIn.addEventListener("change", () => {
   fileIn.value = "";
   if (!f || !cur || cur.addedFromFriend || !picField || editIdx < 0 || !cur.cards[editIdx]) { picField = null; return; }
   const fld = picField; picField = null;
-  compressImg(f, data => { if (cur&&!cur.addedFromFriend&&editIdx > -1 && cur.cards[editIdx]) { cur.cards[editIdx][fld] = data; save(); renderList(); } });
+  compressImg(f, data => { if (cur&&!cur.addedFromFriend&&editIdx > -1 && cur.cards[editIdx]) { cur.cards[editIdx][fld] = data; clearLearnedMark(cur); save(); renderList(); } });
 });
 function compressImg(file, cb){
   const url = URL.createObjectURL(file), im = new Image();
@@ -367,6 +372,7 @@ function route(){
     $("lib").classList.add("hidden"); $("study").classList.add("hidden"); $("profile").classList.remove("hidden");
     renderProfile(); if (viewedFriend) loadFriendProfile(); else { loadFriends(); loadProfileContent(); } window.scrollTo(0, 0); return;
   }
+  if(ratingRefreshTimer){clearInterval(ratingRefreshTimer);ratingRefreshTimer=null;}
   viewedFriend = null;viewedProfileData=null;
   $("profile").classList.add("hidden");
   const m = mm ? mods.find(x => x.id === mm[2]) : null;
@@ -584,15 +590,32 @@ function startLibrarySync(userId){
   libraryChannel=sb.channel("library-sync-"+userId)
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"libraries",filter:"user_id=eq."+userId},payload=>{
       if(user?.id!==userId||!Array.isArray(payload.new?.data))return;
-      const incoming=payload.new.data.filter(m=>m?.addedFromFriend&&m.addedFromUser&&m.addedFromModule);
+      const incoming=payload.new.data;
+      const incomingCopies=incoming.filter(m=>m?.addedFromFriend&&m.addedFromUser&&m.addedFromModule);
       let changed=false;
       mods=mods.map(module=>{
-        if(!module.addedFromFriend||!module.addedFromUser||!module.addedFromModule)return module;
-        const source=incoming.find(m=>m.addedFromUser===module.addedFromUser&&m.addedFromModule===module.addedFromModule);
+        if(!module.addedFromFriend){
+          const remote=incoming.find(m=>m?.id===module.id);
+          if(!remote||module.name!==remote.name||JSON.stringify(module.cards)!==JSON.stringify(remote.cards))return module;
+          if(!!module.learnedPerfectly===!!remote.learnedPerfectly)return module;
+          changed=true;
+          const updated={...module};
+          if(remote.learnedPerfectly)updated.learnedPerfectly=true;else clearLearnedMark(updated);
+          return updated;
+        }
+        if(!module.addedFromUser||!module.addedFromModule)return module;
+        const source=incomingCopies.find(m=>m.addedFromUser===module.addedFromUser&&m.addedFromModule===module.addedFromModule);
         if(!source)return module;
-        if(module.name===source.name&&JSON.stringify(module.cards)===JSON.stringify(source.cards))return module;
+        const cardsChanged=JSON.stringify(module.cards)!==JSON.stringify(source.cards||[]);
+        const contentChanged=module.name!==source.name||cardsChanged;
+        const markChanged=!!module.learnedPerfectly!==!!source.learnedPerfectly;
+        if(!contentChanged&&!markChanged)return module;
         changed=true;
-        return {...module,name:source.name,cards:source.cards||[]};
+        const updated={...module,name:source.name,cards:source.cards||[]};
+        if(contentChanged)clearLearnedMark(updated);
+        else if(source.learnedPerfectly)updated.learnedPerfectly=true;
+        else clearLearnedMark(updated);
+        return updated;
       });
       if(!changed)return;
       try{localStorage.setItem(KEY,JSON.stringify(mods));}catch(_){}
@@ -606,6 +629,8 @@ function startLibrarySync(userId){
 function renderProfile(){
   if (!user) return;
   profileModulesView="modules";
+  ratingPeriod="month";
+  $("ratingMonth").classList.add("pri");$("ratingAll").classList.remove("pri");
   $("tabProfile").classList.remove("hidden");
   $("tabFriends").classList.remove("hidden");
   $("tabSettings").classList.toggle("hidden",!!viewedFriend);
@@ -730,6 +755,7 @@ function showFriendsTab(showFriends){
 function showProfileTab(tab){
   if(viewedFriend&&tab==="settings")return;
   $("profileCard").classList.toggle("hidden",tab!=="profile");
+  $("ratingPanel").classList.toggle("hidden",tab!=="profile"||!!viewedFriend);
   $("friendsPanel").classList.toggle("hidden",tab!=="friends");
   $("profileModules").classList.toggle("hidden",tab!=="modules");
   $("profileSettings").classList.toggle("hidden",tab!=="settings");
@@ -738,6 +764,64 @@ function showProfileTab(tab){
   $("tabFriends").classList.toggle("pri",tab==="friends");
   $("tabModules").classList.toggle("pri",tab==="modules");
   $("tabSettings").classList.toggle("pri",tab==="settings");
+  if(tab==="profile"&&!viewedFriend){
+    loadLearningLeaderboard();
+    clearInterval(ratingRefreshTimer);
+    ratingRefreshTimer=setInterval(()=>loadLearningLeaderboard(),60000);
+  }else if(ratingRefreshTimer){clearInterval(ratingRefreshTimer);ratingRefreshTimer=null;}
+  if(tab==="profile")loadProfileLearningRanks(viewedFriend||user?.id);
+}
+async function loadProfileLearningRanks(targetUserId){
+  const request=++profileRankRequestSeq;
+  if(!targetUserId||!sb)return;
+  const {data,error}=await sb.rpc("get_learning_user_ranks",{target_user:targetUserId});
+  if(request!==profileRankRequestSeq||(viewedFriend||user?.id)!==targetUserId)return;
+  const row=error?null:data?.[0]||null;
+  const month=Number(row?.month_rank)||null,all=Number(row?.all_time_rank)||null;
+  const monthRankEl=$("profileMonthRank"),allRankEl=$("profileAllRank");
+  monthRankEl.querySelector(".profile-rank-label").textContent="Топ "+(month||"—")+" за месяц";
+  allRankEl.querySelector(".profile-rank-label").textContent="Топ "+(all||"—")+" за всё время";
+  $("profileRankCrown").classList.toggle("hidden",month!==1&&all!==1);
+  [monthRankEl,allRankEl].forEach((element,index)=>{
+    const rank=index===0?month:all;
+    element.classList.remove("rank-1","rank-2","rank-3");
+    if(rank>=1&&rank<=3)element.classList.add("rank-"+rank);
+  });
+}
+async function loadLearningLeaderboard(period=ratingPeriod){
+  if(!user||!sb)return;
+  const request=++ratingRequestSeq;
+  $("ratingList").innerHTML='<p class="sub">Загружаем рейтинг…</p>';
+  const {data,error}=await sb.rpc("get_learning_leaderboard",{ranking_period:period});
+  if(request!==ratingRequestSeq)return;
+  if(error){$("ratingList").innerHTML='<p class="amsg err">Не удалось загрузить рейтинг. Проверьте, что миграция рейтинга применена в Supabase.</p>';return;}
+  if(!data?.length){$("ratingList").innerHTML='<p class="sub">Пока нет выученных модулей для рейтинга.</p>';return;}
+  $("ratingList").innerHTML='<div class="rating-list">'+data.map(row=>{
+    const position=Number(row.rank_no)||0,medal=position>=1&&position<=3?' medal-'+position:"";
+    const avatar=row.avatar_data?'<img class="rating-avatar-photo" src="'+escA(row.avatar_data)+'" alt="">':"";
+    const frame=position>=1&&position<=3?'<img class="rank-frame-overlay" src="'+rankFrameSrc(position)+'" alt="">':"";
+    return '<div class="rating-row'+(row.user_id===user.id?' is-me':'')+'"><span class="rating-position">'+position+'</span><span class="rating-avatar-frame'+medal+'">'+avatar+frame+'</span><span class="rating-name">'+esc(row.nickname||"Пользователь")+'</span><b class="rating-points">'+row.points+'</b></div>';
+  }).join("")+'</div>';
+}
+function setRatingPeriod(period){
+  ratingPeriod=period==="all"?"all":"month";
+  $("ratingMonth").classList.toggle("pri",ratingPeriod==="month");
+  $("ratingAll").classList.toggle("pri",ratingPeriod==="all");
+  loadLearningLeaderboard(ratingPeriod);
+}
+async function syncLearningAwards(saveLibrary=false){
+  if(!user||!sb||!synced)return false;
+  const userId=user.id;
+  try{
+    if(saveLibrary){
+      const saved=await sb.from("libraries").upsert({user_id:userId,data:mods});
+      if(saved.error)throw saved.error;
+    }
+    const {error}=await sb.rpc("sync_learning_awards");
+    if(error)throw error;
+    if(user?.id===userId&&location.hash==="#profile"&&!viewedFriend)loadLearningLeaderboard();
+    return true;
+  }catch(_){return false;}
 }
 function friendCard(profile, action){
   const id=profile.user_id||"";
@@ -982,6 +1066,7 @@ async function loadAccount(){
     try { localStorage.setItem(KEY, JSON.stringify(mods)); } catch (_) {}
     synced = true; accErr = false;
     if(removedDuplicates){cloudSave();route();}
+    await syncLearningAwards();
     await loadShared();
   } catch (e) { accErr = true; accErrText = (e && e.message) || "ошибка"; }
   renderAcc();
@@ -1036,6 +1121,8 @@ $("tabModules").onclick = () => {
 $("openModuleArchive").onclick=()=>{profileModulesView="archive";renderOwnProfileModules();};
 $("profileModulesBack").onclick=()=>{profileModulesView="modules";renderOwnProfileModules();};
 $("tabSettings").onclick = () => showProfileTab("settings");
+$("ratingMonth").onclick=()=>setRatingPeriod("month");
+$("ratingAll").onclick=()=>setRatingPeriod("all");
 $("settingsLogout").onclick = logout;
 let friendSearchTimer = null, friendSearchSeq = 0;
 $("friendSearch").addEventListener("input", () => {
@@ -1394,6 +1481,8 @@ function skipQ(){
 }
 function learnDone(){
   const acc = L.tries ? Math.round(L.ok / L.tries * 100) : 0;
+  const perfect=L.tries>0&&L.ok===L.tries;
+  if(perfect&&cur&&!cur.learnedPerfectly){cur.learnedPerfectly=true;save();renderLib();syncLearningAwards(true);}
   $("lbar").classList.remove("hot");
   $("lbody").innerHTML = '<div class="done"><h1>Все слова выучены</h1><p class="sub">Верных ответов: ' + L.ok + ' из ' + L.tries + ' (' + acc + '%)</p>' +
     '<button class="b pri" id="lagain">Ещё раз</button><button class="b" id="lfin">К модулю</button></div>';
